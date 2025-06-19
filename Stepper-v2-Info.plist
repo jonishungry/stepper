@@ -4,5 +4,7 @@
 <dict>
 	<key>CFBundleGetInfoString</key>
 	<string></string>
+	<key>CFBundleSignature</key>
+	<string></string>
 </dict>
 </plist>

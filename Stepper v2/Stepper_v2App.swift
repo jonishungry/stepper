@@ -11,9 +11,13 @@ import SwiftUI
 struct Stepper_v2App: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainView()
         }
     }
 }
 
-
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        MainView()
+    }
+}
