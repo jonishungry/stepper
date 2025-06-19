@@ -411,6 +411,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Stepper v2/Stepper v2.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Stepper-v2-Info.plist";
@@ -447,6 +448,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Stepper v2/Stepper v2.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Stepper-v2-Info.plist";
