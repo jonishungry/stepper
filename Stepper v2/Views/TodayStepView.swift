@@ -7,8 +7,19 @@
 
 import SwiftUI
 
+// MARK: - Today's Steps View
 struct TodayStepsView: View {
     @ObservedObject var healthManager: HealthManager
+    @State private var showingTargetSetting = false
+    
+    var targetManager: TargetManager {
+        healthManager.getTargetManager()
+    }
+    
+    var progressPercentage: Double {
+        guard targetManager.currentTarget > 0 else { return 0 }
+        return min(Double(healthManager.stepCount) / Double(targetManager.currentTarget), 1.0)
+    }
     
     var body: some View {
         VStack(spacing: 30) {
@@ -32,25 +43,90 @@ struct TodayStepsView: View {
                         ProgressView("Loading steps...")
                             .scaleEffect(1.2)
                     } else {
-                        VStack(spacing: 10) {
-                            Text("Current Count")
-                                .font(.headline)
-                                .foregroundColor(.secondary)
+                        VStack(spacing: 20) {
+                            // Main step count
+                            VStack(spacing: 10) {
+                                Text("Current Count")
+                                    .font(.headline)
+                                    .foregroundColor(.secondary)
+                                
+                                Text("\(healthManager.stepCount)")
+                                    .font(.system(size: 72, weight: .bold, design: .rounded))
+                                    .foregroundColor(.primary)
+                                    .animation(.easeInOut, value: healthManager.stepCount)
+                                
+                                Text("steps")
+                                    .font(.title2)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 20)
+                                    .fill(Color.blue.opacity(0.1))
+                            )
                             
-                            Text("\(healthManager.stepCount)")
-                                .font(.system(size: 72, weight: .bold, design: .rounded))
-                                .foregroundColor(.primary)
-                                .animation(.easeInOut, value: healthManager.stepCount)
-                            
-                            Text("steps")
-                                .font(.title2)
-                                .foregroundColor(.secondary)
+                            // Target and progress
+                            VStack(spacing: 15) {
+                                HStack {
+                                    VStack(alignment: .leading) {
+                                        Text("Today's Target")
+                                            .font(.headline)
+                                            .foregroundColor(.secondary)
+                                        
+                                        Text("\(targetManager.currentTarget) steps")
+                                            .font(.title2)
+                                            .fontWeight(.semibold)
+                                            .foregroundColor(.orange)
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    Button(action: {
+                                        showingTargetSetting = true
+                                    }) {
+                                        Image(systemName: "pencil")
+                                            .font(.title3)
+                                            .foregroundColor(.orange)
+                                    }
+                                }
+                                
+                                // Progress bar
+                                VStack(spacing: 8) {
+                                    HStack {
+                                        Text("Progress")
+                                            .font(.subheadline)
+                                            .foregroundColor(.secondary)
+                                        
+                                        Spacer()
+                                        
+                                        Text("\(Int(progressPercentage * 100))%")
+                                            .font(.subheadline)
+                                            .fontWeight(.semibold)
+                                            .foregroundColor(progressPercentage >= 1.0 ? .green : .primary)
+                                    }
+                                    
+                                    ProgressView(value: progressPercentage)
+                                        .progressViewStyle(LinearProgressViewStyle(tint: progressPercentage >= 1.0 ? .green : .blue))
+                                        .scaleEffect(x: 1, y: 2, anchor: .center)
+                                }
+                                
+                                if progressPercentage >= 1.0 {
+                                    HStack {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(.green)
+                                        Text("Target achieved! 🎉")
+                                            .font(.subheadline)
+                                            .fontWeight(.semibold)
+                                            .foregroundColor(.green)
+                                    }
+                                }
+                            }
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(Color.orange.opacity(0.1))
+                            )
                         }
-                        .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 20)
-                                .fill(Color.blue.opacity(0.1))
-                        )
                     }
                 } else if healthManager.authorizationStatus == "Not Determined" {
                     VStack(spacing: 15) {
@@ -130,5 +206,8 @@ struct TodayStepsView: View {
             }
         }
         .padding()
+        .sheet(isPresented: $showingTargetSetting) {
+            TargetSettingView(targetManager: targetManager, isPresented: $showingTargetSetting)
+        }
     }
 }

@@ -1,10 +1,3 @@
-//
-//  StepHistoryView.swift
-//  Stepper v2
-//
-//  Created by Jonathan Chan on 6/19/25.
-//
-
 import SwiftUI
 import Charts
 
@@ -37,16 +30,26 @@ struct StepHistoryView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     VStack(spacing: 20) {
-                        // Chart
+                        // Chart with targets
                         Chart(healthManager.weeklySteps) { stepData in
+                            // Step bars
                             BarMark(
                                 x: .value("Day", stepData.dayName),
                                 y: .value("Steps", stepData.steps)
                             )
-                            .foregroundStyle(.blue.gradient)
+                            .foregroundStyle(stepData.targetMet ? Color.green : Color.blue)
                             .cornerRadius(4)
+                            
+                            // Target stars
+                            PointMark(
+                                x: .value("Day", stepData.dayName),
+                                y: .value("Target", stepData.targetSteps)
+                            )
+                            .symbol(Circle())
+                            .symbolSize(100)
+                            .foregroundStyle(.orange)
                         }
-                        .frame(height: 250)
+                        .frame(height: 300)
                         .padding()
                         .background(
                             RoundedRectangle(cornerRadius: 16)
@@ -54,13 +57,45 @@ struct StepHistoryView: View {
                                 .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
                         )
                         
+                        // Legend
+                        HStack(spacing: 20) {
+                            HStack(spacing: 5) {
+                                Rectangle()
+                                    .fill(.blue.gradient)
+                                    .frame(width: 12, height: 12)
+                                    .cornerRadius(2)
+                                Text("Steps")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            HStack(spacing: 5) {
+                                Rectangle()
+                                    .fill(.green.gradient)
+                                    .frame(width: 12, height: 12)
+                                    .cornerRadius(2)
+                                Text("Target Met")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            HStack(spacing: 5) {
+                                Circle()
+                                .fill(.orange)
+                                .frame(width: 8, height: 8)
+                            Text("Target")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            }
+                        }
+                        
                         // Stats
                         VStack(spacing: 15) {
                             Text("Last 7 Days")
                                 .font(.headline)
                                 .foregroundColor(.secondary)
                             
-                            HStack(spacing: 30) {
+                            HStack(spacing: 20) {
                                 VStack {
                                     Text("\(healthManager.weeklySteps.map(\.steps).reduce(0, +))")
                                         .font(.title2)
@@ -82,11 +117,11 @@ struct StepHistoryView: View {
                                 }
                                 
                                 VStack {
-                                    Text("\(healthManager.weeklySteps.map(\.steps).max() ?? 0)")
+                                    Text("\(healthManager.weeklySteps.filter(\.targetMet).count)")
                                         .font(.title2)
                                         .fontWeight(.bold)
                                         .foregroundColor(.orange)
-                                    Text("Best Day")
+                                    Text("Targets Met")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }

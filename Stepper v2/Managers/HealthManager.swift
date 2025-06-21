@@ -8,25 +8,6 @@
 import SwiftUI
 import HealthKit
 
-// MARK: - Step Data Model
-struct StepData: Identifiable {
-    let id = UUID()
-    let date: Date
-    let steps: Int
-    
-    var dayName: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "E" // Mon, Tue, etc.
-        return formatter.string(from: date)
-    }
-    
-    var fullDate: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter.string(from: date)
-    }
-}
-
 // MARK: - Health Manager
 class HealthManager: ObservableObject {
     private let healthStore = HKHealthStore()
@@ -35,8 +16,14 @@ class HealthManager: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var authorizationStatus: String = "Not Determined"
     
+    private let targetManager = TargetManager()
+    
     init() {
         checkAuthorizationStatus()
+    }
+    
+    func getTargetManager() -> TargetManager {
+        return targetManager
     }
     
     func requestHealthKitPermission() {
@@ -121,48 +108,49 @@ class HealthManager: ObservableObject {
     }
     
     func fetchWeeklySteps() {
-           guard authorizationStatus == "Authorized" else { return }
-           
-           let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
-           let calendar = Calendar.current
-           let endDate = Date()
-           let startDate = calendar.date(byAdding: .day, value: -6, to: endDate)!
-           
-           let predicate = HKQuery.predicateForSamples(
-               withStart: startDate,
-               end: endDate,
-               options: .strictStartDate
-           )
-           
-           let query = HKStatisticsCollectionQuery(
-               quantityType: stepType,
-               quantitySamplePredicate: predicate,
-               options: .cumulativeSum,
-               anchorDate: startDate,
-               intervalComponents: DateComponents(day: 1)
-           )
-           
-           query.initialResultsHandler = { [weak self] _, results, error in
-               DispatchQueue.main.async {
-                   if let error = error {
-                       print("Error fetching weekly steps: \(error.localizedDescription)")
-                       return
-                   }
-                   
-                   guard let results = results else { return }
-                   
-                   var stepDataArray: [StepData] = []
-                   
-                   results.enumerateStatistics(from: startDate, to: endDate) { statistic, _ in
-                       let steps = statistic.sumQuantity()?.doubleValue(for: HKUnit.count()) ?? 0
-                       let stepData = StepData(date: statistic.startDate, steps: Int(steps))
-                       stepDataArray.append(stepData)
-                   }
-                   
-                   self?.weeklySteps = stepDataArray.sorted { $0.date < $1.date }
-               }
-           }
-           
-           healthStore.execute(query)
-       }
+        guard authorizationStatus == "Authorized" else { return }
+        
+        let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
+        let calendar = Calendar.current
+        let endDate = Date()
+        let startDate = calendar.date(byAdding: .day, value: -6, to: endDate)!
+        
+        let predicate = HKQuery.predicateForSamples(
+            withStart: startDate,
+            end: endDate,
+            options: .strictStartDate
+        )
+        
+        let query = HKStatisticsCollectionQuery(
+            quantityType: stepType,
+            quantitySamplePredicate: predicate,
+            options: .cumulativeSum,
+            anchorDate: startDate,
+            intervalComponents: DateComponents(day: 1)
+        )
+        
+        query.initialResultsHandler = { [weak self] _, results, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    print("Error fetching weekly steps: \(error.localizedDescription)")
+                    return
+                }
+                
+                guard let results = results else { return }
+                
+                var stepDataArray: [StepData] = []
+                
+                results.enumerateStatistics(from: startDate, to: endDate) { statistic, _ in
+                    let steps = statistic.sumQuantity()?.doubleValue(for: HKUnit.count()) ?? 0
+                    let targetSteps = self?.targetManager.getTargetForDate(statistic.startDate) ?? 10000
+                    let stepData = StepData(date: statistic.startDate, steps: Int(steps), targetSteps: targetSteps)
+                    stepDataArray.append(stepData)
+                }
+                
+                self?.weeklySteps = stepDataArray.sorted { $0.date < $1.date }
+            }
+        }
+        
+        healthStore.execute(query)
+    }
 }
