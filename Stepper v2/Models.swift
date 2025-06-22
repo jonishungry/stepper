@@ -26,6 +26,16 @@ struct StepData: Identifiable {
         return formatter.string(from: date)
     }
     
+    var weekday: Int {
+        Calendar.current.component(.weekday, from: date)
+    }
+    
+    var weekdayName: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE" // Monday, Tuesday, etc.
+        return formatter.string(from: date)
+    }
+    
     var targetMet: Bool {
         return steps >= targetSteps
     }
@@ -35,7 +45,6 @@ struct StepData: Identifiable {
         return min(Double(steps) / Double(targetSteps), 1.0)
     }
 }
-
 
 enum MenuItem: String, CaseIterable {
     case today = "Today's Steps"
@@ -50,7 +59,6 @@ enum MenuItem: String, CaseIterable {
         }
     }
 }
-
 // Add the new color theme:
 // MARK: - Color Theme
 extension Color {

@@ -5,6 +5,7 @@
 //  Created by Jonathan Chan on 6/19/25.
 //
 
+import CoreData
 import CoreMotion
 import SwiftUI
 import HealthKit
@@ -24,7 +25,8 @@ class HealthManager: ObservableObject {
     private var refreshTimer: Timer?
     private var stepQuery: HKQuery?
     private var loadingTimer: Timer?
-    private var baselineSteps: Int = 0 // Steps at start of day from HealthKit
+    private var baselineSteps: Int = 0
+    private var context: NSManagedObjectContext?
     
     init() {
         checkAuthorizationStatus()
@@ -41,6 +43,39 @@ class HealthManager: ObservableObject {
         }
     }
     
+    // MARK: - Core Data Methods
+    func setContext(_ context: NSManagedObjectContext) {
+        self.context = context
+    }
+    
+    private func saveStepData(_ steps: Int, for date: Date, target: Int) {
+        guard let context = context else {
+            print("⚠️ Core Data context not available - skipping save")
+            return
+        }
+        
+        DispatchQueue.main.async {
+            let entity = StepHistoryEntity.fetchOrCreate(for: date, in: context)
+            entity.steps = Int32(steps)
+            entity.targetSteps = Int32(target)
+            
+            do {
+                try context.save()
+                let formatter = DateFormatter()
+                formatter.dateFormat = "MMM d"
+                print("💾 Saved: \(steps) steps for \(formatter.string(from: date))")
+            } catch {
+                print("❌ Core Data save failed: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func getWeekdayAverage(for weekday: Int) -> Int {
+        guard let context = context else { return 0 }
+        return StepHistoryEntity.averageStepsForWeekday(weekday, in: context)
+    }
+    
+    // MARK: - Public Methods
     func getTargetManager() -> TargetManager {
         return targetManager
     }
@@ -85,6 +120,7 @@ class HealthManager: ObservableObject {
         syncToHealthKitBaseline()
     }
     
+    // MARK: - Hybrid Tracking Methods
     private func startHybridTracking() {
         print("🚀 Starting hybrid tracking (HealthKit + CMPedometer)")
         
@@ -184,10 +220,11 @@ class HealthManager: ObservableObject {
         fetchHealthKitBaseline { }
     }
     
+    // MARK: - Timer Methods
     private func startRefreshTimer() {
         stopRefreshTimer()
         
-        print("🔄 Starting 5-second HealthKit backup timer")
+        print("🔄 Starting 15-second HealthKit backup timer")
         // Backup timer - less frequent since real-time is handling foreground
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { [weak self] timer in
             // Only use HealthKit timer if real-time isn't active
@@ -224,6 +261,7 @@ class HealthManager: ObservableObject {
         isLoading = false
     }
     
+    // MARK: - HealthKit Permission Methods
     func requestHealthKitPermission() {
         guard HKHealthStore.isHealthDataAvailable() else {
             authorizationStatus = "Health data not available"
@@ -301,6 +339,7 @@ class HealthManager: ObservableObject {
         }
     }
     
+    // MARK: - Data Fetching Methods
     func fetchTodaysSteps() {
         guard authorizationStatus == "Authorized" else {
             print("❌ Can't fetch steps - not authorized: \(authorizationStatus)")
@@ -424,6 +463,9 @@ class HealthManager: ObservableObject {
                     let targetSteps = self?.targetManager.getTargetForDate(dayDate) ?? 10000
                     let stepData = StepData(date: dayDate, steps: daySteps, targetSteps: targetSteps)
                     stepDataArray.append(stepData)
+                    
+                    // Save to Core Data for persistence
+                    self?.saveStepData(daySteps, for: dayDate, target: targetSteps)
                     
                     print("📅 \(dayDate): \(daySteps) steps (target: \(targetSteps))")
                 }

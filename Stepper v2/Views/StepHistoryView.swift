@@ -13,9 +13,13 @@ struct StepHistoryView: View {
                 if healthManager.weeklySteps.isEmpty {
                     StepHistoryLoadingView()
                 } else {
-                    StepHistoryContentView(weeklySteps: healthManager.weeklySteps, refreshAction: {
-                        healthManager.fetchWeeklySteps()
-                    })
+                    StepHistoryContentView(
+                        weeklySteps: healthManager.weeklySteps,
+                        healthManager: healthManager,
+                        refreshAction: {
+                            healthManager.fetchWeeklySteps()
+                        }
+                    )
                 }
             } else {
                 StepHistoryPermissionView(requestPermission: {
@@ -48,7 +52,7 @@ struct StepHistoryHeaderView: View {
                     .foregroundColor(.stepperYellow)
             }
             
-            Text("Your awesome progress! 📈")
+            Text("Your step progress! 📊")
                 .font(.subheadline)
                 .foregroundColor(.stepperCream.opacity(0.8))
         }
@@ -62,7 +66,7 @@ struct StepHistoryLoadingView: View {
                 .progressViewStyle(CircularProgressViewStyle(tint: .stepperYellow))
                 .scaleEffect(1.5)
             
-            Text("Fetching your data...")
+            Text("Fetching your step data...")
                 .foregroundColor(.stepperCream.opacity(0.8))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -71,11 +75,12 @@ struct StepHistoryLoadingView: View {
 
 struct StepHistoryContentView: View {
     let weeklySteps: [StepData]
+    @ObservedObject var healthManager: HealthManager
     let refreshAction: () -> Void
     
     var body: some View {
         VStack(spacing: 20) {
-            StepHistoryChartView(weeklySteps: weeklySteps)
+            StepHistoryChartView(weeklySteps: weeklySteps, healthManager: healthManager)
             StepHistoryLegendView()
             StepHistoryStatsView(weeklySteps: weeklySteps)
             StepHistoryRefreshButton(action: refreshAction)
@@ -89,6 +94,9 @@ struct StepHistoryContentView: View {
 
 struct StepHistoryChartView: View {
     let weeklySteps: [StepData]
+    @ObservedObject var healthManager: HealthManager
+    @State private var selectedDay: StepData?
+    @State private var showingDayDetail = false
     
     private var maxValue: Int {
         let maxSteps = weeklySteps.map(\.steps).max() ?? 0
@@ -97,40 +105,75 @@ struct StepHistoryChartView: View {
     }
     
     private var chartMaxValue: Int {
-        // 10% more than the maximum value
         return Int(Double(maxValue) * 1.1)
     }
     
+    // Ensure the button order matches the chart order exactly
+    private var sortedWeeklySteps: [StepData] {
+        return weeklySteps.sorted { $0.date < $1.date }
+    }
+    
     var body: some View {
-        Chart(weeklySteps) { stepData in
-            // Step bars
-            BarMark(
-                x: .value("Day", stepData.dayName),
-                y: .value("Steps", stepData.steps)
-            )
-            .foregroundStyle(stepData.targetMet ? Color.stepperYellow : Color.stepperLightTeal)
-            .cornerRadius(6)
+        VStack(spacing: 12) {
+            // Simple clickable chart with overlay buttons
+            ZStack {
+                Chart(sortedWeeklySteps) { stepData in
+                    BarMark(
+                        x: .value("Day", stepData.dayName),
+                        y: .value("Steps", stepData.steps)
+                    )
+                    .foregroundStyle(stepData.targetMet ? Color.stepperYellow : Color.stepperLightTeal)
+                    .cornerRadius(6)
+                    
+                    PointMark(
+                        x: .value("Day", stepData.dayName),
+                        y: .value("Target", stepData.targetSteps)
+                    )
+                    .symbol(Circle())
+                    .symbolSize(100)
+                    .foregroundStyle(Color.stepperCream)
+                }
+                .chartYScale(domain: 0...chartMaxValue)
+                .frame(height: 300)
+                
+                // Invisible tap buttons overlay - using the same sorted order
+                HStack(spacing: 0) {
+                    ForEach(sortedWeeklySteps, id: \.id) { stepData in
+                        Button {
+                            selectedDay = stepData
+                            showingDayDetail = true
+                        } label: {
+                            Rectangle()
+                                .fill(Color.clear)
+                                .contentShape(Rectangle())
+                        }
+                    }
+                }
+                .frame(height: 300)
+            }
+            .padding()
+            .background(ChartBackgroundStyle())
             
-            // Target circles
-            PointMark(
-                x: .value("Day", stepData.dayName),
-                y: .value("Target", stepData.targetSteps)
-            )
-            .symbol(Circle())
-            .symbolSize(120)
-            .foregroundStyle(Color.stepperCream)
+            Text("Tap any bar for detailed stats")
+                .font(.caption)
+                .foregroundColor(.stepperCream.opacity(0.6))
         }
-        .chartYScale(domain: 0...chartMaxValue)
-        .frame(height: 300)
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color.stepperCream.opacity(0.1))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(Color.stepperYellow.opacity(0.3), lineWidth: 2)
-                )
-        )
+        .sheet(isPresented: $showingDayDetail) {
+            if let selectedDay = selectedDay {
+                DayDetailView(stepData: selectedDay, healthManager: healthManager)
+            }
+        }
+    }
+}
+
+struct ChartBackgroundStyle: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 20)
+            .fill(Color.stepperCream.opacity(0.1))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color.stepperYellow.opacity(0.3), lineWidth: 2)
+            )
     }
 }
 
@@ -172,6 +215,10 @@ struct StepHistoryLegendView: View {
 struct StepHistoryStatsView: View {
     let weeklySteps: [StepData]
     
+    private var sortedSteps: [StepData] {
+        return weeklySteps.sorted { $0.date < $1.date }
+    }
+    
     var body: some View {
         VStack(spacing: 15) {
             HStack {
@@ -186,7 +233,7 @@ struct StepHistoryStatsView: View {
             
             HStack(spacing: 20) {
                 VStack {
-                    Text("\(weeklySteps.map(\.steps).reduce(0, +))")
+                    Text("\(sortedSteps.map(\.steps).reduce(0, +))")
                         .font(.title2)
                         .fontWeight(.bold)
                         .foregroundColor(.stepperYellow)
@@ -196,7 +243,7 @@ struct StepHistoryStatsView: View {
                 }
                 
                 VStack {
-                    Text("\(weeklySteps.map(\.steps).reduce(0, +) / max(weeklySteps.count, 1))")
+                    Text("\(sortedSteps.map(\.steps).reduce(0, +) / max(sortedSteps.count, 1))")
                         .font(.title2)
                         .fontWeight(.bold)
                         .foregroundColor(.stepperLightTeal)
@@ -206,7 +253,7 @@ struct StepHistoryStatsView: View {
                 }
                 
                 VStack {
-                    Text("\(weeklySteps.filter(\.targetMet).count)")
+                    Text("\(sortedSteps.filter(\.targetMet).count)")
                         .font(.title2)
                         .fontWeight(.bold)
                         .foregroundColor(.stepperCream)
@@ -258,12 +305,12 @@ struct StepHistoryPermissionView: View {
                 .fontWeight(.semibold)
                 .foregroundColor(.stepperCream)
             
-            Text("Enable Health access to see your paw-some step history!")
+            Text("Enable Health access to see your step history!")
                 .multilineTextAlignment(.center)
                 .foregroundColor(.stepperCream.opacity(0.8))
             
             Button(action: requestPermission) {
-                Text("Enable Health Access 🐾")
+                Text("Enable Health Access 👟")
                     .font(.headline)
                     .foregroundColor(.stepperDarkBlue)
                     .frame(maxWidth: .infinity)
@@ -275,3 +322,5 @@ struct StepHistoryPermissionView: View {
         .padding()
     }
 }
+
+
