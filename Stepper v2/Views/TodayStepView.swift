@@ -23,164 +23,185 @@ struct TodayStepsView: View {
     
     var body: some View {
         VStack(spacing: 30) {
-            // Header
-            VStack(spacing: 10) {
-                Image(systemName: "figure.walk")
-                    .font(.system(size: 60))
-                    .foregroundColor(.blue)
+            // Header with footprints
+            VStack(spacing: 15) {
+                HStack {
+                    Text("Today's Steps")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                        .foregroundColor(.stepperCream)
+                    
+                    Image(systemName: "shoe.2.fill")
+                        .font(.system(size: 30))
+                        .foregroundColor(.stepperYellow)
+                }
                 
-                Text("Today's Steps")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
+                Text("Let's get those feet moving! 👣")
+                    .font(.subheadline)
+                    .foregroundColor(.stepperCream.opacity(0.8))
             }
+            
+
             
             Spacer()
             
             // Step Count Display
-            VStack(spacing: 20) {
-                if healthManager.authorizationStatus == "Authorized" {
-                    if healthManager.isLoading {
-                        ProgressView("Loading steps...")
-                            .scaleEffect(1.2)
-                    } else {
-                        VStack(spacing: 20) {
-                            // Main step count
-                            VStack(spacing: 10) {
-                                Text("Current Count")
+            if healthManager.authorizationStatus == "Authorized" {
+                if healthManager.isLoading {
+                    VStack(spacing: 15) {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .stepperYellow))
+                            .scaleEffect(1.5)
+                        
+                        Text("Counting your steps...")
+                            .foregroundColor(.stepperCream.opacity(0.8))
+                    }
+                } else {
+                    VStack(spacing: 20) {
+                        // Main step count with paw theme
+                        VStack(spacing: 15) {
+                            HStack {
+                                
+                                Text("Steps Today")
                                     .font(.headline)
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(.stepperCream.opacity(0.8))
                                 
-                                Text("\(healthManager.stepCount)")
-                                    .font(.system(size: 72, weight: .bold, design: .rounded))
-                                    .foregroundColor(.primary)
-                                    .animation(.easeInOut, value: healthManager.stepCount)
-                                
-                                Text("steps")
-                                    .font(.title2)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 20)
-                                    .fill(Color.blue.opacity(0.1))
-                            )
-                            
-                            // Target and progress
-                            VStack(spacing: 15) {
-                                HStack {
-                                    VStack(alignment: .leading) {
-                                        Text("Today's Target")
-                                            .font(.headline)
-                                            .foregroundColor(.secondary)
+                                // Real-time indicator
+                                if healthManager.isRealtimeActive {
+                                    HStack(spacing: 4) {
+                                        Circle()
+                                            .fill(Color.green)
+                                            .frame(width: 8, height: 8)
+                                            .scaleEffect(healthManager.isRealtimeActive ? 1.0 : 0.5)
+                                            .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: healthManager.isRealtimeActive)
                                         
-                                        Text("\(targetManager.currentTarget) steps")
-                                            .font(.title2)
-                                            .fontWeight(.semibold)
-                                            .foregroundColor(.orange)
+                                        Text("LIVE")
+                                            .font(.caption2)
+                                            .fontWeight(.bold)
+                                            .foregroundColor(.green)
                                     }
+                                }
+                            }
+                            
+                            Text("\(healthManager.stepCount)")
+                                .font(.system(size: 64, weight: .bold, design: .rounded))
+                                .foregroundColor(.stepperCream)
+                                .animation(.easeInOut, value: healthManager.stepCount)
+                            
+                            Text("steps")
+                                .font(.title2)
+                                .foregroundColor(.stepperCream.opacity(0.7))
+                        }
+                        .padding(25)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(Color.stepperCream.opacity(0.1))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 20)
+                                        .stroke(Color.stepperYellow.opacity(0.3), lineWidth: 2)
+                                )
+                        )
+                        
+                        // Target and progress with cute styling
+                        VStack(spacing: 15) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    HStack {
+                                        Image(systemName: "target")
+                                            .foregroundColor(.stepperYellow)
+                                        Text("Today's Goal")
+                                            .font(.headline)
+                                            .foregroundColor(.stepperCream.opacity(0.8))
+                                    }
+                                    
+                                    Text("\(targetManager.currentTarget) steps")
+                                        .font(.title2)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.stepperYellow)
+                                }
+                                
+                                Spacer()
+                                
+                                Button(action: {
+                                    showingTargetSetting = true
+                                }) {
+                                    Image(systemName: "pencil.circle.fill")
+                                        .font(.title2)
+                                        .foregroundColor(.stepperYellow)
+                                }
+                            }
+                            
+                            // Cute progress bar
+                            VStack(spacing: 8) {
+                                HStack {
+                                    Text("Progress")
+                                        .font(.subheadline)
+                                        .foregroundColor(.stepperCream.opacity(0.7))
                                     
                                     Spacer()
                                     
-                                    Button(action: {
-                                        showingTargetSetting = true
-                                    }) {
-                                        Image(systemName: "pencil")
-                                            .font(.title3)
-                                            .foregroundColor(.orange)
-                                    }
+                                    Text("\(Int(progressPercentage * 100))%")
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(progressPercentage >= 1.0 ? .stepperYellow : .stepperCream)
                                 }
                                 
-                                // Progress bar
-                                VStack(spacing: 8) {
-                                    HStack {
-                                        Text("Progress")
-                                            .font(.subheadline)
-                                            .foregroundColor(.secondary)
-                                        
-                                        Spacer()
-                                        
-                                        Text("\(Int(progressPercentage * 100))%")
-                                            .font(.subheadline)
-                                            .fontWeight(.semibold)
-                                            .foregroundColor(progressPercentage >= 1.0 ? .green : .primary)
-                                    }
-                                    
-                                    ProgressView(value: progressPercentage)
-                                        .progressViewStyle(LinearProgressViewStyle(tint: progressPercentage >= 1.0 ? .green : .blue))
-                                        .scaleEffect(x: 1, y: 2, anchor: .center)
-                                }
-                                
-                                if progressPercentage >= 1.0 {
-                                    HStack {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundColor(.green)
-                                        Text("Target achieved! 🎉")
-                                            .font(.subheadline)
-                                            .fontWeight(.semibold)
-                                            .foregroundColor(.green)
-                                    }
+                                ProgressView(value: progressPercentage)
+                                    .progressViewStyle(LinearProgressViewStyle(tint: progressPercentage >= 1.0 ? .stepperYellow : .stepperLightTeal))
+                                    .scaleEffect(x: 1, y: 3, anchor: .center)
+                                    .background(Color.stepperCream.opacity(0.2))
+                                    .cornerRadius(4)
+                            }
+                            
+                            if progressPercentage >= 1.0 {
+                                HStack {
+                                    Image(systemName: "shoeprint.fill")
+                                        .foregroundColor(.stepperYellow)
+                                    Text("Awesome! Goal achieved! 🎉")
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.stepperYellow)
+                                    Image(systemName: "shoeprint.fill")
+                                        .foregroundColor(.stepperYellow)
                                 }
                             }
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(Color.orange.opacity(0.1))
-                            )
                         }
+                        .padding(20)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color.stepperTeal.opacity(0.3))
+                        )
                     }
-                } else if healthManager.authorizationStatus == "Not Determined" {
-                    VStack(spacing: 15) {
-                        Text("Health Access Required")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                        
-                        Text("This app needs access to your Health data to show your step count.")
-                            .multilineTextAlignment(.center)
-                            .foregroundColor(.secondary)
-                        
-                        Button(action: {
-                            healthManager.requestHealthKitPermission()
-                        }) {
-                            Text("Enable Health Access")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.blue)
-                                .cornerRadius(12)
-                        }
-                    }
-                    .padding()
-                } else if healthManager.authorizationStatus == "Denied" {
-                    VStack(spacing: 15) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 40))
-                            .foregroundColor(.orange)
-                        
-                        Text("Health Access Denied")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                        
-                        Text("Please enable Health access in Settings to view your steps.")
-                            .multilineTextAlignment(.center)
-                            .foregroundColor(.secondary)
-                        
-                        Button(action: {
-                            if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
-                                UIApplication.shared.open(settingsUrl)
-                            }
-                        }) {
-                            Text("Open Settings")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.orange)
-                                .cornerRadius(12)
-                        }
-                    }
-                    .padding()
                 }
+            } else {
+                // Health Access Needed - same as history view
+                VStack(spacing: 20) {
+                    Image(systemName: "heart.circle.fill")
+                        .font(.system(size: 60))
+                        .foregroundColor(.stepperYellow)
+                    
+                    Text("Health Access Needed")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.stepperCream)
+                    
+                    Text("Enable Health access to track your awesome steps!")
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.stepperCream.opacity(0.8))
+                    
+                    Button(action: {
+                        healthManager.requestHealthKitPermission()
+                    }) {
+                        Text("Enable Health Access 👣")
+                            .font(.headline)
+                            .foregroundColor(.stepperDarkBlue)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.stepperYellow)
+                            .cornerRadius(16)
+                    }
+                }
+                .padding()
             }
             
             Spacer()
@@ -195,11 +216,11 @@ struct TodayStepsView: View {
                         Text("Refresh Steps")
                     }
                     .font(.headline)
-                    .foregroundColor(.blue)
+                    .foregroundColor(.stepperYellow)
                     .padding()
                     .background(
                         RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.blue, lineWidth: 2)
+                            .stroke(Color.stepperYellow, lineWidth: 2)
                     )
                 }
                 .disabled(healthManager.isLoading)

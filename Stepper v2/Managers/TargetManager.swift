@@ -23,14 +23,33 @@ class TargetManager: ObservableObject {
         currentTarget = target
         userDefaults.set(target, forKey: currentTargetKey)
         
-        // Save target for today's date
+        // Save target for today's date specifically
         let today = Calendar.current.startOfDay(for: Date())
         saveTargetForDate(target, date: today)
     }
     
+    func saveTargetForSpecificDate(_ target: Int, date: Date) {
+        let startOfDay = Calendar.current.startOfDay(for: date)
+        saveTargetForDate(target, date: startOfDay)
+        
+        // If setting for today, also update current target
+        let today = Calendar.current.startOfDay(for: Date())
+        if startOfDay == today {
+            currentTarget = target
+            userDefaults.set(target, forKey: currentTargetKey)
+        }
+    }
+    
     private func loadCurrentTarget() {
-        let saved = userDefaults.integer(forKey: currentTargetKey)
-        currentTarget = saved > 0 ? saved : 10000
+        // First try to get today's specific target
+        let today = Calendar.current.startOfDay(for: Date())
+        if let todaysTarget = getStoredTargetForDate(today) {
+            currentTarget = todaysTarget
+        } else {
+            // Fall back to general current target
+            let saved = userDefaults.integer(forKey: currentTargetKey)
+            currentTarget = saved > 0 ? saved : 10000
+        }
     }
     
     private func saveTargetForDate(_ target: Int, date: Date) {
@@ -43,18 +62,23 @@ class TargetManager: ObservableObject {
         }
     }
     
-    func getTargetForDate(_ date: Date) -> Int {
+    private func getStoredTargetForDate(_ date: Date) -> Int? {
         let targetHistory = getTargetHistory()
+        let dateKey = dateToString(date)
+        return targetHistory[dateKey]
+    }
+    
+    func getTargetForDate(_ date: Date) -> Int {
         let calendar = Calendar.current
         let startDate = calendar.startOfDay(for: date)
         
-        // Look for exact date first
-        let dateKey = dateToString(startDate)
-        if let target = targetHistory[dateKey] {
-            return target
+        // First check if this specific date has a stored target
+        if let specificTarget = getStoredTargetForDate(startDate) {
+            return specificTarget
         }
         
-        // If no exact date, find the most recent target before this date
+        // If no specific target for this date, find the most recent target before this date
+        let targetHistory = getTargetHistory()
         let sortedDates = targetHistory.keys.compactMap { stringToDate($0) }
             .filter { $0 <= startDate }
             .sorted()
@@ -64,7 +88,26 @@ class TargetManager: ObservableObject {
             return targetHistory[mostRecentKey] ?? currentTarget
         }
         
+        // If no historical targets, use current target
         return currentTarget
+    }
+    
+    func getAllStoredTargets() -> [Date: Int] {
+        let targetHistory = getTargetHistory()
+        var result: [Date: Int] = [:]
+        
+        for (dateString, target) in targetHistory {
+            if let date = stringToDate(dateString) {
+                result[date] = target
+            }
+        }
+        
+        return result
+    }
+    
+    func hasSpecificTargetForDate(_ date: Date) -> Bool {
+        let startDate = Calendar.current.startOfDay(for: date)
+        return getStoredTargetForDate(startDate) != nil
     }
     
     private func getTargetHistory() -> [String: Int] {

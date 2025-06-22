@@ -17,6 +17,14 @@ struct MainView: View {
         NavigationView {
             ZStack {
                 // Main content
+                
+                LinearGradient(
+                    gradient: Gradient(colors: [Color.stepperDarkBlue, Color.stepperTeal]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+                
                 Group {
                     switch selectedMenuItem {
                     case .today:

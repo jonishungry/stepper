@@ -19,18 +19,19 @@ struct SidebarView: View {
                 HStack {
                     Image(systemName: "figure.walk")
                         .font(.title)
-                        .foregroundColor(.blue)
+                        .foregroundColor(.stepperTeal)
                     
-                    Text("Step Counter")
+                    Text("Stepper")
                         .font(.title2)
                         .fontWeight(.bold)
+                        .foregroundColor(.stepperDarkBlue)
                     
                     Spacer()
                 }
                 
-                Text("Track your daily activity")
+                Text("Track your step progress! 👣")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.stepperTeal)
             }
             .padding(.horizontal, 20)
             .padding(.top, 20)
@@ -48,12 +49,12 @@ struct SidebarView: View {
                         HStack(spacing: 15) {
                             Image(systemName: item.icon)
                                 .font(.title3)
-                                .foregroundColor(selectedMenuItem == item ? .white : .primary)
+                                .foregroundColor(selectedMenuItem == item ? .stepperCream : .stepperDarkBlue)
                                 .frame(width: 24)
                             
                             Text(item.rawValue)
                                 .font(.body)
-                                .foregroundColor(selectedMenuItem == item ? .white : .primary)
+                                .foregroundColor(selectedMenuItem == item ? .stepperCream : .stepperDarkBlue)
                             
                             Spacer()
                         }
@@ -61,8 +62,10 @@ struct SidebarView: View {
                         .padding(.vertical, 16)
                         .background(
                             selectedMenuItem == item ?
-                            Color.blue : Color.clear
+                            Color.stepperTeal : Color.clear
                         )
+                        .cornerRadius(selectedMenuItem == item ? 12 : 0)
+                        .padding(.horizontal, selectedMenuItem == item ? 10 : 0)
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
@@ -71,7 +74,7 @@ struct SidebarView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(.systemBackground))
+        .background(Color.stepperCream)
         .shadow(color: .black.opacity(0.1), radius: 10, x: 5, y: 0)
     }
 }

@@ -15,76 +15,93 @@ struct TargetSettingView: View {
     
     var body: some View {
         NavigationView {
-            VStack(spacing: 30) {
-                VStack(spacing: 15) {
-                    Image(systemName: "target")
-                        .font(.system(size: 50))
-                        .foregroundColor(.orange)
-                    
-                    Text("Set Daily Step Target")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    
-                    Text("This target will be used for today and all future days until changed.")
-                        .font(.body)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                }
+            ZStack {
+                LinearGradient(
+                    gradient: Gradient(colors: [Color.stepperDarkBlue, Color.stepperTeal]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
                 
-                VStack(spacing: 20) {
-                    VStack(spacing: 8) {
-                        Text("Current Target")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
-                        
-                        Text("\(targetManager.currentTarget) steps")
-                            .font(.title)
-                            .fontWeight(.bold)
-                            .foregroundColor(.blue)
-                    }
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.blue.opacity(0.1))
-                    )
-                    
+                VStack(spacing: 30) {
                     VStack(spacing: 15) {
-                        Text("New Target")
-                            .font(.headline)
+                        Image(systemName: "target")
+                            .font(.system(size: 50))
+                            .foregroundColor(.stepperYellow)
                         
-                        TextField("Enter steps", text: $targetText)
-                            .keyboardType(.numberPad)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                        Text("Set Your Daily Goal! 🎯")
                             .font(.title2)
-                            .multilineTextAlignment(.center)
+                            .fontWeight(.bold)
+                            .foregroundColor(.stepperCream)
                         
-                        HStack(spacing: 15) {
-                            ForEach([5000, 8000, 10000, 12000], id: \.self) { preset in
-                                Button(action: {
-                                    targetText = "\(preset)"
-                                }) {
-                                    Text("\(preset)")
-                                        .font(.caption)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 6)
-                                        .background(Color.gray.opacity(0.2))
-                                        .cornerRadius(8)
+                        Text("How many paw steps will you take today?")
+                            .font(.body)
+                            .foregroundColor(.stepperCream.opacity(0.8))
+                            .multilineTextAlignment(.center)
+                    }
+                    
+                    VStack(spacing: 20) {
+                        VStack(spacing: 8) {
+                            Text("Current Goal")
+                                .font(.headline)
+                                .foregroundColor(.stepperCream.opacity(0.7))
+                            
+                            Text("\(targetManager.currentTarget) steps")
+                                .font(.title)
+                                .fontWeight(.bold)
+                                .foregroundColor(.stepperYellow)
+                        }
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color.stepperCream.opacity(0.1))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .stroke(Color.stepperYellow.opacity(0.3), lineWidth: 2)
+                                )
+                        )
+                        
+                        VStack(spacing: 15) {
+                            Text("New Goal")
+                                .font(.headline)
+                                .foregroundColor(.stepperCream)
+                            
+                            TextField("Enter steps", text: $targetText)
+                                .keyboardType(.numberPad)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.title2)
+                                .multilineTextAlignment(.center)
+                            
+                            HStack(spacing: 15) {
+                                ForEach([5000, 8000, 10000, 12000], id: \.self) { preset in
+                                    Button(action: {
+                                        targetText = "\(preset)"
+                                    }) {
+                                        Text("\(preset)")
+                                            .font(.caption)
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 6)
+                                            .background(Color.stepperCream.opacity(0.2))
+                                            .foregroundColor(.stepperCream)
+                                            .cornerRadius(8)
+                                    }
                                 }
                             }
                         }
                     }
+                    
+                    Spacer()
                 }
-                
-                Spacer()
+                .padding()
             }
-            .padding()
-            .navigationTitle("Step Target")
+            .navigationTitle("Step Goal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
                         isPresented = false
                     }
+                    .foregroundColor(.stepperCream)
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -95,6 +112,7 @@ struct TargetSettingView: View {
                         }
                     }
                     .disabled(Int(targetText) == nil || Int(targetText) ?? 0 <= 0)
+                    .foregroundColor(.stepperYellow)
                 }
             }
         }
@@ -103,3 +121,5 @@ struct TargetSettingView: View {
         }
     }
 }
+
+

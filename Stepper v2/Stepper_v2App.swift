@@ -11,7 +11,7 @@ import SwiftUI
 struct Stepper_v2App: App {
     var body: some Scene {
         WindowGroup {
-            MainView()
+            SplashScreenView()
         }
     }
 }
