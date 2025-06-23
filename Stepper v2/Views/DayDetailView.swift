@@ -34,46 +34,54 @@ struct DayDetailOverlay: View {
                 }
             }
             
-            // Compact stats row
+            // Compact stats row with fixed widths to prevent jittering
             HStack(spacing: 16) {
-                // Steps
+                // Steps - fixed width
                 VStack(spacing: 4) {
                     Text("\(stepData.steps)")
                         .font(.title2)
                         .fontWeight(.bold)
                         .foregroundColor(.stepperYellow)
+                        .monospacedDigit() // Ensures consistent digit spacing
                     Text("steps")
                         .font(.caption2)
                         .foregroundColor(.stepperCream.opacity(0.7))
                 }
+                .frame(width: 80) // Fixed width for steps section
                 
-                // Goal display instead of percentage
+                // Goal display - fixed width
                 VStack(spacing: 4) {
                     Text("\(stepData.targetSteps)")
                         .font(.title3)
                         .fontWeight(.semibold)
                         .foregroundColor(.stepperLightTeal)
+                        .monospacedDigit()
                     Text("goal")
                         .font(.caption2)
                         .foregroundColor(.stepperCream.opacity(0.7))
                 }
+                .frame(width: 80) // Fixed width for goal section
                 
-                // Average comparison
+                // Average comparison - fixed width
                 VStack(spacing: 4) {
                     if isLoadingAverage {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .stepperCream))
                             .scaleEffect(0.6)
+                            .frame(height: 22) // Match text height
                     } else {
                         Text("\(weekdayAverage)")
                             .font(.title3)
                             .fontWeight(.medium)
                             .foregroundColor(.stepperCream)
+                            .monospacedDigit()
                     }
                     Text("avg \(stepData.dayName)")
                         .font(.caption2)
                         .foregroundColor(.stepperCream.opacity(0.7))
+                        .lineLimit(1) // Prevent text wrapping
                 }
+                .frame(width: 80) // Fixed width for average section
             }
             
             // Simple progress bar
@@ -94,18 +102,32 @@ struct DayDetailOverlay: View {
                 .fill(Color.stepperDarkBlue.opacity(0.95))
                 .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
         )
-        .frame(maxWidth: 280)
+        .frame(maxWidth: 340)
         .offset(y: -180) // Position above the chart
         .onAppear {
+            fetchWeekdayAverage()
+        }
+        .onChange(of: stepData.id) { _ in
+            // Reset state when stepData changes (new day selected)
+            isLoadingAverage = true
+            weekdayAverage = 0
             fetchWeekdayAverage()
         }
     }
     
     private func fetchWeekdayAverage() {
-        healthManager.fetchWeekdayAverage(for: stepData.weekday) { average in
+        print("🔍 Fetching average for \(stepData.dayName) (weekday: \(stepData.weekday))")
+        
+        healthManager.fetchWeekdayAverage(for: stepData.weekday) { [stepData] average in
             DispatchQueue.main.async {
-                self.weekdayAverage = average
-                self.isLoadingAverage = false
+                // Only update if this is still the same day being displayed
+                if self.stepData.id == stepData.id {
+                    print("✅ Setting average for \(stepData.dayName): \(average)")
+                    self.weekdayAverage = average
+                    self.isLoadingAverage = false
+                } else {
+                    print("⚠️ Ignoring stale average for \(stepData.dayName)")
+                }
             }
         }
     }
