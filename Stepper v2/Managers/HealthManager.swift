@@ -481,5 +481,76 @@ class HealthManager: ObservableObject {
         
         healthStore.execute(query)
     }
-}
+    
+    func fetchWeekdayAverage(for weekday: Int, completion: @escaping (Int) -> Void) {
+            guard authorizationStatus == "Authorized" else {
+                completion(0)
+                return
+            }
+            
+            let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
+            let calendar = Calendar.current
+            let now = Date()
+            
+            // Get data from the last 12 weeks for better average calculation
+            let startDate = calendar.date(byAdding: .weekOfYear, value: -12, to: now)!
+            
+            let predicate = HKQuery.predicateForSamples(
+                withStart: startDate,
+                end: now,
+                options: .strictStartDate
+            )
+            
+            let query = HKStatisticsCollectionQuery(
+                quantityType: stepType,
+                quantitySamplePredicate: predicate,
+                options: .cumulativeSum,
+                anchorDate: startDate,
+                intervalComponents: DateComponents(day: 1)
+            )
+            
+            query.initialResultsHandler = { [weak self] _, results, error in
+                if let error = error {
+                    print("❌ Error fetching weekday average: \(error.localizedDescription)")
+                    completion(0)
+                    return
+                }
+                
+                guard let results = results else {
+                    completion(0)
+                    return
+                }
+                
+                var weekdaySteps: [Int] = []
+                
+                results.enumerateStatistics(from: startDate, to: now) { statistic, _ in
+                    let statisticWeekday = calendar.component(.weekday, from: statistic.startDate)
+                    
+                    // Only include data for the specified weekday
+                    if statisticWeekday == weekday {
+                        let steps = Int(statistic.sumQuantity()?.doubleValue(for: HKUnit.count()) ?? 0)
+                        weekdaySteps.append(steps)
+                    }
+                }
+                
+                let average = weekdaySteps.isEmpty ? 0 : weekdaySteps.reduce(0, +) / weekdaySteps.count
+                
+                print("📊 \(self?.weekdayName(for: weekday) ?? "Unknown") average: \(average) steps (from \(weekdaySteps.count) days)")
+                
+                completion(average)
+            }
+            
+            healthStore.execute(query)
+        }
+        
+        private func weekdayName(for weekday: Int) -> String {
+            let weekdays = ["", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+            return weekdays[weekday] ?? "Unknown"
+        }
+    }
 
+extension Array {
+    subscript(safe index: Index) -> Element? {
+        return indices.contains(index) ? self[index] : nil
+    }
+}

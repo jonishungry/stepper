@@ -8,161 +8,104 @@ import SwiftUI
 import Charts
 
 // MARK: - Day Detail View
-struct DayDetailView: View {
+struct DayDetailOverlay: View {
     let stepData: StepData
     @ObservedObject var healthManager: HealthManager
-    @Environment(\.dismiss) private var dismiss
-    
-    private var weekdayAverage: Int {
-        return healthManager.getWeekdayAverage(for: stepData.weekday)
-    }
-    
-    private var progressText: String {
-        if stepData.targetMet {
-            return "Goal achieved! 🎉"
-        } else {
-            let remaining = stepData.targetSteps - stepData.steps
-            return "\(remaining) steps to go"
-        }
-    }
-    
-    private var comparisonText: String {
-        if weekdayAverage == 0 {
-            return "First recorded \(stepData.weekdayName)"
-        } else if stepData.steps > weekdayAverage {
-            let difference = stepData.steps - weekdayAverage
-            return "\(difference) steps above your \(stepData.weekdayName) average"
-        } else if stepData.steps < weekdayAverage {
-            let difference = weekdayAverage - stepData.steps
-            return "\(difference) steps below your \(stepData.weekdayName) average"
-        } else {
-            return "Right on your \(stepData.weekdayName) average!"
-        }
-    }
+    @Binding var isPresented: Bool
+    @State private var weekdayAverage: Int = 0
+    @State private var isLoadingAverage: Bool = true
     
     var body: some View {
-        NavigationView {
-            ZStack {
-                LinearGradient(
-                    gradient: Gradient(colors: [Color.stepperDarkBlue, Color.stepperTeal]),
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
-                
-                VStack(spacing: 30) {
-                    // Header
-                    VStack(spacing: 10) {
-                        Text(stepData.weekdayName)
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                            .foregroundColor(.stepperCream)
-                        
-                        Text(stepData.fullDate)
-                            .font(.title2)
-                            .foregroundColor(.stepperCream.opacity(0.8))
-                    }
-                    
-                    // Main Stats
-                    VStack(spacing: 25) {
-                        // Steps Count
-                        VStack(spacing: 15) {
-                            HStack {
-                                Image(systemName: "shoeprints.fill")
-                                    .font(.title2)
-                                    .foregroundColor(.stepperYellow)
-                                Text("Steps Taken")
-                                    .font(.headline)
-                                    .foregroundColor(.stepperCream.opacity(0.8))
-                            }
-                            
-                            Text("\(stepData.steps)")
-                                .font(.system(size: 48, weight: .bold, design: .rounded))
-                                .foregroundColor(.stepperYellow)
-                        }
-                        .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(Color.stepperCream.opacity(0.1))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .stroke(Color.stepperYellow.opacity(0.3), lineWidth: 2)
-                                )
-                        )
-                        
-                        // Goal Progress
-                        VStack(spacing: 15) {
-                            HStack {
-                                Image(systemName: "target")
-                                    .font(.title2)
-                                    .foregroundColor(.stepperLightTeal)
-                                Text("Goal: \(stepData.targetSteps)")
-                                    .font(.headline)
-                                    .foregroundColor(.stepperCream.opacity(0.8))
-                            }
-                            
-                            // Progress Bar
-                            VStack(spacing: 8) {
-                                ProgressView(value: stepData.completionPercentage)
-                                    .progressViewStyle(LinearProgressViewStyle(tint: stepData.targetMet ? .stepperYellow : .stepperLightTeal))
-                                    .scaleEffect(x: 1, y: 3, anchor: .center)
-                                    .background(Color.stepperCream.opacity(0.2))
-                                    .cornerRadius(4)
-                                
-                                Text(progressText)
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(stepData.targetMet ? .stepperYellow : .stepperLightTeal)
-                            }
-                        }
-                        .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(Color.stepperTeal.opacity(0.3))
-                        )
-                        
-                        // Weekday Comparison - only show if we have historical data
-                        VStack(spacing: 15) {
-                            HStack {
-                                Image(systemName: "chart.line.uptrend.xyaxis")
-                                    .font(.title2)
-                                    .foregroundColor(.stepperCream)
-                                Text("\(stepData.weekdayName) Average")
-                                    .font(.headline)
-                                    .foregroundColor(.stepperCream.opacity(0.8))
-                            }
-                            
-                            Text("\(weekdayAverage) steps")
-                                .font(.title2)
-                                .fontWeight(.bold)
-                                .foregroundColor(.stepperCream)
-                            
-                            Text(comparisonText)
-                                .font(.subheadline)
-                                .multilineTextAlignment(.center)
-                                .foregroundColor(.stepperCream.opacity(0.8))
-                        }
-                        .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(Color.stepperCream.opacity(0.1))
-                        )
-                        
-                    }
-                    
-                    Spacer()
-                }
-                .padding()
-            }
-            .navigationTitle("Day Details")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
+        // Compact detail card positioned absolutely
+        VStack(spacing: 12) {
+            // Header
+            HStack {
+                Text("\(stepData.dayName) • \(stepData.fullDate)")
+                    .font(.headline)
+                    .fontWeight(.semibold)
                     .foregroundColor(.stepperCream)
+                
+                Spacer()
+                
+                Button(action: { isPresented = false }) {
+                    Image(systemName: "xmark")
+                        .font(.caption)
+                        .foregroundColor(.stepperCream.opacity(0.7))
                 }
+            }
+            
+            // Compact stats row
+            HStack(spacing: 16) {
+                // Steps
+                VStack(spacing: 4) {
+                    Text("\(stepData.steps)")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.stepperYellow)
+                    Text("steps")
+                        .font(.caption2)
+                        .foregroundColor(.stepperCream.opacity(0.7))
+                }
+                
+                // Goal display instead of percentage
+                VStack(spacing: 4) {
+                    Text("\(stepData.targetSteps)")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.stepperLightTeal)
+                    Text("goal")
+                        .font(.caption2)
+                        .foregroundColor(.stepperCream.opacity(0.7))
+                }
+                
+                // Average comparison
+                VStack(spacing: 4) {
+                    if isLoadingAverage {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .stepperCream))
+                            .scaleEffect(0.6)
+                    } else {
+                        Text("\(weekdayAverage)")
+                            .font(.title3)
+                            .fontWeight(.medium)
+                            .foregroundColor(.stepperCream)
+                    }
+                    Text("avg \(stepData.dayName)")
+                        .font(.caption2)
+                        .foregroundColor(.stepperCream.opacity(0.7))
+                }
+            }
+            
+            // Simple progress bar
+            ProgressView(value: stepData.completionPercentage)
+                .progressViewStyle(LinearProgressViewStyle(tint: stepData.targetMet ? .stepperYellow : .stepperLightTeal))
+                .scaleEffect(x: 1, y: 1.5, anchor: .center)
+                .background(Color.stepperCream.opacity(0.2))
+                .cornerRadius(2)
+            
+            // Status text
+            Text(stepData.targetMet ? "Goal achieved! 🎉" : "\(stepData.targetSteps - stepData.steps) steps to goal")
+                .font(.caption)
+                .foregroundColor(stepData.targetMet ? .stepperYellow : .stepperCream.opacity(0.8))
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.stepperDarkBlue.opacity(0.95))
+                .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+        )
+        .frame(maxWidth: 280)
+        .offset(y: -180) // Position above the chart
+        .onAppear {
+            fetchWeekdayAverage()
+        }
+    }
+    
+    private func fetchWeekdayAverage() {
+        healthManager.fetchWeekdayAverage(for: stepData.weekday) { average in
+            DispatchQueue.main.async {
+                self.weekdayAverage = average
+                self.isLoadingAverage = false
             }
         }
     }

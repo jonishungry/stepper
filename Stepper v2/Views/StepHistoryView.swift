@@ -77,26 +77,44 @@ struct StepHistoryContentView: View {
     let weeklySteps: [StepData]
     @ObservedObject var healthManager: HealthManager
     let refreshAction: () -> Void
+    @State private var selectedDay: StepData?
+    @State private var showingDayDetail = false
     
     var body: some View {
         VStack(spacing: 20) {
-            StepHistoryChartView(weeklySteps: weeklySteps, healthManager: healthManager)
+            StepHistoryChartView(
+                weeklySteps: weeklySteps,
+                healthManager: healthManager,
+                selectedDay: $selectedDay,
+                showingDayDetail: $showingDayDetail
+            )
             StepHistoryLegendView()
             StepHistoryStatsView(weeklySteps: weeklySteps)
             StepHistoryRefreshButton(action: refreshAction)
         }
         .onAppear {
-            // Refresh data when history view appears to ensure today's steps are current
             refreshAction()
         }
+        .overlay(
+            // Overlay positioned with .overlay to not affect layout
+            Group {
+                if showingDayDetail, let selectedDay = selectedDay {
+                    DayDetailOverlay(
+                        stepData: selectedDay,
+                        healthManager: healthManager,
+                        isPresented: $showingDayDetail
+                    )
+                }
+            }
+        )
     }
 }
 
 struct StepHistoryChartView: View {
     let weeklySteps: [StepData]
     @ObservedObject var healthManager: HealthManager
-    @State private var selectedDay: StepData?
-    @State private var showingDayDetail = false
+    @Binding var selectedDay: StepData?
+    @Binding var showingDayDetail: Bool
     
     private var maxValue: Int {
         let maxSteps = weeklySteps.map(\.steps).max() ?? 0
@@ -108,14 +126,12 @@ struct StepHistoryChartView: View {
         return Int(Double(maxValue) * 1.1)
     }
     
-    // Ensure the button order matches the chart order exactly
     private var sortedWeeklySteps: [StepData] {
         return weeklySteps.sorted { $0.date < $1.date }
     }
     
     var body: some View {
         VStack(spacing: 12) {
-            // Simple clickable chart with overlay buttons
             ZStack {
                 Chart(sortedWeeklySteps) { stepData in
                     BarMark(
@@ -136,17 +152,18 @@ struct StepHistoryChartView: View {
                 .chartYScale(domain: 0...chartMaxValue)
                 .frame(height: 300)
                 
-                // Invisible tap buttons overlay - using the same sorted order
+                // Back to simple invisible buttons - this approach works reliably
                 HStack(spacing: 0) {
-                    ForEach(sortedWeeklySteps, id: \.id) { stepData in
-                        Button {
-                            selectedDay = stepData
-                            showingDayDetail = true
-                        } label: {
-                            Rectangle()
-                                .fill(Color.clear)
-                                .contentShape(Rectangle())
-                        }
+                    ForEach(0..<sortedWeeklySteps.count, id: \.self) { index in
+                        Rectangle()
+                            .fill(Color.clear)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                let stepData = sortedWeeklySteps[index]
+                                selectedDay = stepData
+                                showingDayDetail = true
+                                print("📊 Tapped index \(index): \(stepData.dayName) - \(stepData.fullDate)")
+                            }
                     }
                 }
                 .frame(height: 300)
@@ -157,11 +174,6 @@ struct StepHistoryChartView: View {
             Text("Tap any bar for detailed stats")
                 .font(.caption)
                 .foregroundColor(.stepperCream.opacity(0.6))
-        }
-        .sheet(isPresented: $showingDayDetail) {
-            if let selectedDay = selectedDay {
-                DayDetailView(stepData: selectedDay, healthManager: healthManager)
-            }
         }
     }
 }
@@ -322,5 +334,3 @@ struct StepHistoryPermissionView: View {
         .padding()
     }
 }
-
-

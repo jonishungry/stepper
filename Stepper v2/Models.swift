@@ -53,7 +53,7 @@ enum MenuItem: String, CaseIterable {
     var icon: String {
         switch self {
         case .today:
-            return "figure.fill"  // Changed from "figure.walk"
+            return "shoe.fill"  // Changed from "figure.walk"
         case .history:
             return "chart.bar.fill"  // Changed from "chart.bar"
         }
