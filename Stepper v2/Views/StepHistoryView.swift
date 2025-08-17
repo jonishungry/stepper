@@ -44,10 +44,6 @@ struct StepHistoryHeaderView: View {
                     .foregroundColor(.stepperCream)
             
             }
-            
-            Text("Your step progress")
-                .font(.subheadline)
-                .foregroundColor(.stepperCream.opacity(0.8))
         }
     }
 }
