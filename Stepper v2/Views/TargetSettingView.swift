@@ -25,18 +25,14 @@ struct TargetSettingView: View {
                 
                 VStack(spacing: 30) {
                     VStack(spacing: 15) {
-                        Image(systemName: "target")
-                            .font(.system(size: 50))
-                            .foregroundColor(.stepperYellow)
-                        
                         Text("Set Your Daily Goal! 🎯")
                             .font(.title2)
                             .fontWeight(.bold)
                             .foregroundColor(.stepperCream)
                         
-                        Text("How many paw steps will you take today?")
+                        Text("How many steps will you take today?")
                             .font(.body)
-                            .foregroundColor(.stepperCream.opacity(0.8))
+                            .foregroundColor(.stepperCream)
                             .multilineTextAlignment(.center)
                     }
                     
@@ -68,8 +64,9 @@ struct TargetSettingView: View {
                             
                             TextField("Enter steps", text: $targetText)
                                 .keyboardType(.numberPad)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .background(Color.stepperCream.opacity(0.2))
                                 .font(.title2)
+                                .foregroundColor(.stepperCream)
                                 .multilineTextAlignment(.center)
                             
                             HStack(spacing: 15) {
@@ -116,8 +113,19 @@ struct TargetSettingView: View {
                 }
             }
         }
+//        .onAppear {
+//            targetText = "\(targetManager.currentTarget)"
+//        }
         .onAppear {
+            // Configure navigation bar appearance for this view
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithTransparentBackground()
+            appearance.titleTextAttributes = [.foregroundColor: UIColor(Color.stepperCream)]
+            appearance.largeTitleTextAttributes = [.foregroundColor: UIColor(Color.stepperCream)]
             targetText = "\(targetManager.currentTarget)"
+            UINavigationBar.appearance().standardAppearance = appearance
+            UINavigationBar.appearance().compactAppearance = appearance
+            UINavigationBar.appearance().scrollEdgeAppearance = appearance
         }
     }
 }

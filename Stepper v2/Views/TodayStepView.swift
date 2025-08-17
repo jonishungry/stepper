@@ -31,12 +31,9 @@ struct TodayStepsView: View {
                         .fontWeight(.bold)
                         .foregroundColor(.stepperCream)
                     
-                    Image(systemName: "shoe.2.fill")
-                        .font(.system(size: 30))
-                        .foregroundColor(.stepperYellow)
                 }
                 
-                Text("Let's get those feet moving! 👣")
+                Text("Let's get those feet moving!")
                     .font(.subheadline)
                     .foregroundColor(.stepperCream.opacity(0.8))
             }
@@ -206,25 +203,25 @@ struct TodayStepsView: View {
             
             Spacer()
             
-            // Refresh Button
-            if healthManager.authorizationStatus == "Authorized" {
-                Button(action: {
-                    healthManager.fetchTodaysSteps()
-                }) {
-                    HStack {
-                        Image(systemName: "arrow.clockwise")
-                        Text("Refresh Steps")
-                    }
-                    .font(.headline)
-                    .foregroundColor(.stepperYellow)
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.stepperYellow, lineWidth: 2)
-                    )
-                }
-                .disabled(healthManager.isLoading)
-            }
+//            // Refresh Button
+//            if healthManager.authorizationStatus == "Authorized" {
+//                Button(action: {
+//                    healthManager.fetchTodaysSteps()
+//                }) {
+//                    HStack {
+//                        Image(systemName: "arrow.clockwise")
+//                        Text("Refresh Steps")
+//                    }
+//                    .font(.headline)
+//                    .foregroundColor(.stepperYellow)
+//                    .padding()
+//                    .background(
+//                        RoundedRectangle(cornerRadius: 12)
+//                            .stroke(Color.stepperYellow, lineWidth: 2)
+//                    )
+//                }
+//                .disabled(healthManager.isLoading)
+//            }
         }
         .padding()
         .sheet(isPresented: $showingTargetSetting) {

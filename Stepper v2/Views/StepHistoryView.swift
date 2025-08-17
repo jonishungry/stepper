@@ -38,21 +38,14 @@ struct StepHistoryHeaderView: View {
     var body: some View {
         VStack(spacing: 10) {
             HStack {
-                Image(systemName: "shoeprints.fill")
-                    .font(.system(size: 25))
-                    .foregroundColor(.stepperYellow)
-                
                 Text("Step History")
                     .font(.largeTitle)
                     .fontWeight(.bold)
                     .foregroundColor(.stepperCream)
-                
-                Image(systemName: "shoeprints.fill")
-                    .font(.system(size: 25))
-                    .foregroundColor(.stepperYellow)
+            
             }
             
-            Text("Your step progress! 📊")
+            Text("Your step progress")
                 .font(.subheadline)
                 .foregroundColor(.stepperCream.opacity(0.8))
         }
@@ -90,7 +83,6 @@ struct StepHistoryContentView: View {
             )
             StepHistoryLegendView()
             StepHistoryStatsView(weeklySteps: weeklySteps)
-            StepHistoryRefreshButton(action: refreshAction)
         }
         .onAppear {
             refreshAction()
@@ -234,13 +226,9 @@ struct StepHistoryStatsView: View {
     var body: some View {
         VStack(spacing: 15) {
             HStack {
-                Image(systemName: "shoeprints.fill")
-                    .foregroundColor(.stepperYellow)
                 Text("Last 7 Days Summary")
                     .font(.headline)
                     .foregroundColor(.stepperCream)
-                Image(systemName: "shoeprints.fill")
-                    .foregroundColor(.stepperYellow)
             }
             
             HStack(spacing: 20) {
@@ -280,26 +268,6 @@ struct StepHistoryStatsView: View {
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color.stepperTeal.opacity(0.3))
         )
-    }
-}
-
-struct StepHistoryRefreshButton: View {
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                Image(systemName: "arrow.clockwise")
-                Text("Refresh History")
-            }
-            .font(.headline)
-            .foregroundColor(.stepperYellow)
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.stepperYellow, lineWidth: 2)
-            )
-        }
     }
 }
 

@@ -17,10 +17,6 @@ struct SidebarView: View {
             // Header
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Image(systemName: "figure.walk")
-                        .font(.title)
-                        .foregroundColor(.stepperTeal)
-                    
                     Text("Stepper")
                         .font(.title2)
                         .fontWeight(.bold)
@@ -29,7 +25,7 @@ struct SidebarView: View {
                     Spacer()
                 }
                 
-                Text("Track your step progress! 👣")
+                Text("Track your step progress!")
                     .font(.caption)
                     .foregroundColor(.stepperTeal)
             }
