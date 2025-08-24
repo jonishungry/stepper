@@ -282,8 +282,6 @@ struct BedtimeNotificationSection: View {
         formatter.timeStyle = .short
         return formatter.string(from: notificationManager.settings.customBedtime)
     }
-    
-
 }
 
 // MARK: - Enhanced Inactivity Notification Section
@@ -547,86 +545,116 @@ struct TimeIntervalEditorView: View {
                     .padding()
                     .background(Color.stepperDarkBlue.opacity(0.8))
                     
-                    // Content
-                    VStack(spacing: 30) {
-                        VStack(spacing: 15) {
-                            Image(systemName: "clock.fill")
-                                .font(.system(size: 50))
-                                .foregroundColor(.stepperYellow)
-                            
-                            Text("Set your active hours for inactivity reminders")
-                                .font(.body)
-                                .foregroundColor(.stepperCream.opacity(0.8))
-                                .multilineTextAlignment(.center)
-                        }
-                        
-                        VStack(spacing: 25) {
+                    // Scrollable Content
+                    ScrollView {
+                        VStack(spacing: 30) {
                             VStack(spacing: 15) {
-                                HStack {
-                                    Image(systemName: "sunrise.fill")
-                                        .foregroundColor(.stepperYellow)
-                                    Text("Start Time")
-                                        .font(.headline)
-                                        .foregroundColor(.stepperCream)
-                                    Spacer()
-                                }
+                                Image(systemName: "clock.fill")
+                                    .font(.system(size: 50))
+                                    .foregroundColor(.stepperYellow)
                                 
-                                DatePicker("Start Time",
-                                         selection: $startTime,
-                                         displayedComponents: .hourAndMinute)
-                                    .datePickerStyle(WheelDatePickerStyle())
-                                    .labelsHidden()
+                                Text("Set your active hours for inactivity reminders")
+                                    .font(.body)
+                                    .foregroundColor(.stepperCream.opacity(0.8))
+                                    .multilineTextAlignment(.center)
+                            }
+                            .padding(.top, 20)
+                            
+                            VStack(spacing: 25) {
+                                VStack(spacing: 15) {
+                                    HStack {
+                                        Image(systemName: "sunrise.fill")
+                                            .foregroundColor(.stepperYellow)
+                                        Text("Start Time")
+                                            .font(.headline)
+                                            .foregroundColor(.stepperCream)
+                                        Spacer()
+                                    }
+                                    
+                                    DatePicker("Start Time",
+                                             selection: $startTime,
+                                             displayedComponents: .hourAndMinute)
+                                        .datePickerStyle(WheelDatePickerStyle())
+                                        .labelsHidden()
+                                        .frame(height: 120)
+                                }
+                                .padding()
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(Color.stepperCream.opacity(0.1))
+                                )
+                                
+                                VStack(spacing: 15) {
+                                    HStack {
+                                        Image(systemName: "sunset.fill")
+                                            .foregroundColor(.stepperYellow)
+                                        Text("End Time")
+                                            .font(.headline)
+                                            .foregroundColor(.stepperCream)
+                                        Spacer()
+                                    }
+                                    
+                                    DatePicker("End Time",
+                                             selection: $endTime,
+                                             displayedComponents: .hourAndMinute)
+                                        .datePickerStyle(WheelDatePickerStyle())
+                                        .labelsHidden()
+                                        .frame(height: 120)
+                                }
+                                .padding()
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(Color.stepperCream.opacity(0.1))
+                                )
+                            }
+                            
+                            // Preview
+                            VStack(spacing: 5) {
+                                Text("Preview:")
+                                    .font(.caption)
+                                    .foregroundColor(.stepperLightTeal)
+                                    .fontWeight(.medium)
+                                
+                                Text(getTimeRangePreview())
+                                    .font(.subheadline)
+                                    .foregroundColor(.stepperYellow)
+                                    .fontWeight(.semibold)
                             }
                             .padding()
                             .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(Color.stepperCream.opacity(0.1))
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.stepperTeal.opacity(0.3))
                             )
                             
-                            VStack(spacing: 15) {
-                                HStack {
-                                    Image(systemName: "sunset.fill")
-                                        .foregroundColor(.stepperYellow)
-                                    Text("End Time")
-                                        .font(.headline)
-                                        .foregroundColor(.stepperCream)
-                                    Spacer()
-                                }
+                            // Instructions
+                            VStack(spacing: 10) {
+                                Text("💡 Tips:")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.stepperYellow)
                                 
-                                DatePicker("End Time",
-                                         selection: $endTime,
-                                         displayedComponents: .hourAndMinute)
-                                    .datePickerStyle(WheelDatePickerStyle())
-                                    .labelsHidden()
-                            }
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(Color.stepperCream.opacity(0.1))
-                            )
-                        }
-                        
-                        // Preview
-                        VStack(spacing: 5) {
-                            Text("Preview:")
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("• You'll only get reminders during these hours")
+                                    Text("• Set multiple ranges for different parts of your day")
+                                    Text("• Times can span midnight (e.g., 11:00 PM - 2:00 AM)")
+                                }
                                 .font(.caption)
-                                .foregroundColor(.stepperLightTeal)
-                                .fontWeight(.medium)
+                                .foregroundColor(.stepperCream.opacity(0.8))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.stepperCream.opacity(0.05))
+                            )
                             
-                            Text(getTimeRangePreview())
-                                .font(.subheadline)
-                                .foregroundColor(.stepperYellow)
-                                .fontWeight(.semibold)
+                            // Bottom padding to ensure content is visible above keyboard
+                            Rectangle()
+                                .fill(Color.clear)
+                                .frame(height: 50)
                         }
                         .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.stepperTeal.opacity(0.3))
-                        )
-                        
-                        Spacer()
                     }
-                    .padding()
                 }
             }
             .navigationBarHidden(true)
