@@ -182,14 +182,14 @@ struct TodayStepsView: View {
                         .fontWeight(.semibold)
                         .foregroundColor(.stepperCream)
                     
-                    Text("Enable Health access to track your awesome steps!")
+                    Text("Enable Health access to track your steps!")
                         .multilineTextAlignment(.center)
                         .foregroundColor(.stepperCream.opacity(0.8))
                     
                     Button(action: {
                         healthManager.requestHealthKitPermission()
                     }) {
-                        Text("Enable Health Access 👣")
+                        Text("Enable Health Access")
                             .font(.headline)
                             .foregroundColor(.stepperDarkBlue)
                             .frame(maxWidth: .infinity)

@@ -27,6 +27,8 @@ class HealthManager: ObservableObject {
     private var loadingTimer: Timer?
     private var baselineSteps: Int = 0
     private var context: NSManagedObjectContext?
+    private let authorizationKey = "HealthKitAuthorizationGranted"
+
     
     init() {
         checkAuthorizationStatus()
@@ -42,6 +44,7 @@ class HealthManager: ObservableObject {
             healthStore.stop(query)
         }
     }
+    
     
     // MARK: - Core Data Methods
     func setContext(_ context: NSManagedObjectContext) {
@@ -264,7 +267,9 @@ class HealthManager: ObservableObject {
     // MARK: - HealthKit Permission Methods
     func requestHealthKitPermission() {
         guard HKHealthStore.isHealthDataAvailable() else {
-            authorizationStatus = "Health data not available"
+            DispatchQueue.main.async {
+                self.authorizationStatus = "Health data not available"
+            }
             return
         }
         
@@ -274,70 +279,152 @@ class HealthManager: ObservableObject {
         healthStore.requestAuthorization(toShare: nil, read: typesToRead) { [weak self] success, error in
             DispatchQueue.main.async {
                 if success {
-                    self?.authorizationStatus = "Authorized"
-                    self?.startHybridTracking()
-                    self?.fetchWeeklySteps()
-                    self?.setupLiveQuery()
+                    // Test if we can actually read data to confirm authorization
+                    self?.testHealthKitAccess { hasAccess in
+                        if hasAccess {
+                            // Store authorization locally for persistence
+                            UserDefaults.standard.set(true, forKey: self?.authorizationKey ?? "")
+                            self?.authorizationStatus = "Authorized"
+                            print("✅ HealthKit authorization confirmed and stored")
+                            
+                            // Start tracking
+                            if !(self?.isRealtimeActive ?? false) {
+                                self?.startHybridTracking()
+                                self?.fetchWeeklySteps()
+                                self?.setupLiveQuery()
+                            }
+                        } else {
+                            self?.authorizationStatus = "Denied"
+                            UserDefaults.standard.set(false, forKey: self?.authorizationKey ?? "")
+                            print("❌ HealthKit authorization denied")
+                        }
+                    }
                 } else {
                     self?.authorizationStatus = "Denied"
+                    UserDefaults.standard.set(false, forKey: self?.authorizationKey ?? "")
+                    print("❌ HealthKit authorization failed: \(error?.localizedDescription ?? "Unknown error")")
                 }
             }
         }
     }
-    
+     
     func checkAuthorizationStatus() {
-        let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
-        let status = healthStore.authorizationStatus(for: stepType)
+        guard HKHealthStore.isHealthDataAvailable() else {
+            DispatchQueue.main.async {
+                self.authorizationStatus = "Health data not available"
+            }
+            return
+        }
         
-        switch status {
-        case .notDetermined:
-            authorizationStatus = "Not Determined"
-        case .sharingDenied:
-            authorizationStatus = "Denied"
-        case .sharingAuthorized:
-            authorizationStatus = "Authorized"
-            startHybridTracking()
-            fetchWeeklySteps()
-            setupLiveQuery()
-        @unknown default:
-            authorizationStatus = "Unknown"
+        // First check if we have previously stored authorization
+        let hasStoredAuth = UserDefaults.standard.bool(forKey: authorizationKey)
+        
+        if hasStoredAuth {
+            print("✅ Found stored HealthKit authorization")
+            
+            // Test if we still have access (user might have revoked in Settings)
+            testHealthKitAccess { [weak self] hasAccess in
+                if hasAccess {
+                    self?.authorizationStatus = "Authorized"
+                    print("✅ HealthKit access confirmed - Starting tracking")
+                    
+                    // Only start tracking if we're not already tracking
+                    if !(self?.isRealtimeActive ?? false) {
+                        self?.startHybridTracking()
+                        self?.fetchWeeklySteps()
+                        self?.setupLiveQuery()
+                    }
+                } else {
+                    // Access was revoked - clear stored preference
+                    UserDefaults.standard.set(false, forKey: self?.authorizationKey ?? "")
+                    self?.authorizationStatus = "Denied"
+                    print("❌ HealthKit access revoked - cleared stored auth")
+                }
+            }
+        } else {
+            // No stored authorization - check system status
+            let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
+            let status = healthStore.authorizationStatus(for: stepType)
+            
+            DispatchQueue.main.async {
+                switch status {
+                case .notDetermined:
+                    self.authorizationStatus = "Not Determined"
+                    print("🔐 HealthKit status: Not Determined")
+                    
+                case .sharingDenied:
+                    self.authorizationStatus = "Denied"
+                    print("❌ HealthKit status: Denied")
+                    
+                case .sharingAuthorized:
+                    // Even if system says authorized, test actual access
+                    self.testHealthKitAccess { [weak self] hasAccess in
+                        if hasAccess {
+                            UserDefaults.standard.set(true, forKey: self?.authorizationKey ?? "")
+                            self?.authorizationStatus = "Authorized"
+                            print("✅ HealthKit system authorized and confirmed - Starting tracking")
+                            
+                            if !(self?.isRealtimeActive ?? false) {
+                                self?.startHybridTracking()
+                                self?.fetchWeeklySteps()
+                                self?.setupLiveQuery()
+                            }
+                        } else {
+                            self?.authorizationStatus = "Denied"
+                            print("❌ HealthKit system authorized but access test failed")
+                        }
+                    }
+                    
+                @unknown default:
+                    self.authorizationStatus = "Unknown"
+                    print("⚠️ HealthKit status: Unknown")
+                }
+            }
         }
     }
     
     private func setupLiveQuery() {
-        let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
-        let calendar = Calendar.current
-        let startOfDay = calendar.startOfDay(for: Date())
-        
-        let predicate = HKQuery.predicateForSamples(
-            withStart: startOfDay,
-            end: nil,
-            options: .strictStartDate
-        )
-        
-        // Create an observer query that will notify us of changes
-        let query = HKObserverQuery(sampleType: stepType, predicate: predicate) { [weak self] _, completionHandler, error in
-            if error == nil {
-                DispatchQueue.main.async {
-                    // Only use HealthKit updates if real-time isn't active
-                    if !(self?.isRealtimeActive ?? false) {
-                        self?.fetchTodaysSteps()
+            // Don't setup multiple queries
+            if stepQuery != nil {
+                print("🔍 Live query already exists, skipping setup")
+                return
+            }
+            
+            let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
+            let calendar = Calendar.current
+            let startOfDay = calendar.startOfDay(for: Date())
+            
+            let predicate = HKQuery.predicateForSamples(
+                withStart: startOfDay,
+                end: nil,
+                options: .strictStartDate
+            )
+            
+            // Create an observer query that will notify us of changes
+            let query = HKObserverQuery(sampleType: stepType, predicate: predicate) { [weak self] _, completionHandler, error in
+                if error == nil {
+                    DispatchQueue.main.async {
+                        // Only use HealthKit updates if real-time isn't active
+                        if !(self?.isRealtimeActive ?? false) {
+                            self?.fetchTodaysSteps()
+                        }
                     }
                 }
+                completionHandler()
             }
-            completionHandler()
-        }
-        
-        healthStore.execute(query)
-        stepQuery = query
-        
-        // Enable background delivery for step count updates
-        healthStore.enableBackgroundDelivery(for: stepType, frequency: .immediate) { success, error in
-            if let error = error {
-                print("Failed to enable background delivery: \(error.localizedDescription)")
+            
+            healthStore.execute(query)
+            stepQuery = query
+            
+            // Enable background delivery for step count updates
+            healthStore.enableBackgroundDelivery(for: stepType, frequency: .immediate) { success, error in
+                if let error = error {
+                    print("❌ Failed to enable background delivery: \(error.localizedDescription)")
+                } else {
+                    print("✅ Background delivery enabled")
+                }
             }
         }
-    }
     
     // MARK: - Data Fetching Methods
     func fetchTodaysSteps() {
@@ -571,6 +658,39 @@ class HealthManager: ObservableObject {
         // 1 = Sunday, 2 = Monday, 3 = Tuesday, 4 = Wednesday, 5 = Thursday, 6 = Friday, 7 = Saturday
         let weekdays = ["", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
         return weekdays[safe: weekday] ?? "Unknown"
+    }
+    
+    // Test actual HealthKit access by attempting to read data
+    private func testHealthKitAccess(completion: @escaping (Bool) -> Void) {
+        let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: Date())
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        
+        let predicate = HKQuery.predicateForSamples(
+            withStart: startOfDay,
+            end: endOfDay,
+            options: .strictStartDate
+        )
+        
+        let query = HKStatisticsQuery(
+            quantityType: stepType,
+            quantitySamplePredicate: predicate,
+            options: .cumulativeSum
+        ) { _, result, error in
+            DispatchQueue.main.async {
+                if error != nil {
+                    print("❌ HealthKit access test failed: \(error!.localizedDescription)")
+                    completion(false)
+                } else {
+                    // If we get here without error, we have access
+                    print("✅ HealthKit access test successful")
+                    completion(true)
+                }
+            }
+        }
+        
+        healthStore.execute(query)
     }
 }
 

@@ -1,10 +1,3 @@
-//
-//  MainView.swift
-//  Stepper v2
-//
-//  Created by Jonathan Chan on 6/19/25.
-//
-
 import SwiftUI
 
 // MARK: - Main View with Sidebar
@@ -17,7 +10,6 @@ struct MainView: View {
         NavigationView {
             ZStack {
                 // Main content
-                
                 LinearGradient(
                     gradient: Gradient(colors: [Color.stepperDarkBlue, Color.stepperTeal]),
                     startPoint: .topLeading,
@@ -72,6 +64,10 @@ struct MainView: View {
             }
         }
         .onAppear {
+            // Set up Core Data context
+            healthManager.setContext(PersistenceController.shared.container.viewContext)
+            
+            // Only fetch data if authorized - don't auto-request permission
             if healthManager.authorizationStatus == "Authorized" {
                 healthManager.fetchTodaysSteps()
                 healthManager.fetchWeeklySteps()
