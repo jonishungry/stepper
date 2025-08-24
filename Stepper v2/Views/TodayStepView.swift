@@ -1,19 +1,17 @@
-//
-//  TodayStepView.swift
-//  Stepper v2
-//
-//  Created by Jonathan Chan on 6/19/25.
-//
-
 import SwiftUI
 
-// MARK: - Today's Steps View
+// MARK: - Today's Steps View with Notification Tracking
 struct TodayStepsView: View {
     @ObservedObject var healthManager: HealthManager
     @State private var showingTargetSetting = false
+    @State private var todaysNotificationCount = 0
     
     var targetManager: TargetManager {
         healthManager.getTargetManager()
+    }
+    
+    var notificationManager: NotificationManager? {
+        healthManager.getNotificationManager()
     }
     
     var progressPercentage: Double {
@@ -30,18 +28,10 @@ struct TodayStepsView: View {
                         .font(.largeTitle)
                         .fontWeight(.bold)
                         .foregroundColor(.stepperCream)
-                    
-                }
-                
-                Text("Let's get those feet moving!")
-                    .font(.subheadline)
-                    .foregroundColor(.stepperCream.opacity(0.8))
-            }
-            
 
-            
-            Spacer()
-            
+                }
+            }
+                        
             // Step Count Display
             if healthManager.authorizationStatus == "Authorized" {
                 if healthManager.isLoading {
@@ -55,10 +45,9 @@ struct TodayStepsView: View {
                     }
                 } else {
                     VStack(spacing: 20) {
-                        // Main step count with paw theme
+                        // Main step count
                         VStack(spacing: 15) {
                             HStack {
-                                
                                 Text("Steps Today")
                                     .font(.headline)
                                     .foregroundColor(.stepperCream.opacity(0.8))
@@ -99,7 +88,7 @@ struct TodayStepsView: View {
                                 )
                         )
                         
-                        // Target and progress with cute styling
+                        // Target and progress section
                         VStack(spacing: 15) {
                             HStack {
                                 VStack(alignment: .leading, spacing: 5) {
@@ -128,7 +117,7 @@ struct TodayStepsView: View {
                                 }
                             }
                             
-                            // Cute progress bar
+                            // Progress bar
                             VStack(spacing: 8) {
                                 HStack {
                                     Text("Progress")
@@ -168,10 +157,16 @@ struct TodayStepsView: View {
                             RoundedRectangle(cornerRadius: 16)
                                 .fill(Color.stepperTeal.opacity(0.3))
                         )
+                        
+                        // NEW: Inactivity Notifications Section
+                        InactivityNotificationStatsView(
+                            notificationCount: todaysNotificationCount,
+                            isNotificationEnabled: notificationManager?.settings.inactivityNotificationEnabled ?? false
+                        )
                     }
                 }
             } else {
-                // Health Access Needed - same as history view
+                // Health Access Needed
                 VStack(spacing: 20) {
                     Image(systemName: "heart.circle.fill")
                         .font(.system(size: 60))
@@ -182,14 +177,14 @@ struct TodayStepsView: View {
                         .fontWeight(.semibold)
                         .foregroundColor(.stepperCream)
                     
-                    Text("Enable Health access to track your steps!")
+                    Text("Enable Health access to track your awesome steps!")
                         .multilineTextAlignment(.center)
                         .foregroundColor(.stepperCream.opacity(0.8))
                     
                     Button(action: {
                         healthManager.requestHealthKitPermission()
                     }) {
-                        Text("Enable Health Access")
+                        Text("Enable Health Access 👣")
                             .font(.headline)
                             .foregroundColor(.stepperDarkBlue)
                             .frame(maxWidth: .infinity)
@@ -203,29 +198,123 @@ struct TodayStepsView: View {
             
             Spacer()
             
-//            // Refresh Button
-//            if healthManager.authorizationStatus == "Authorized" {
-//                Button(action: {
-//                    healthManager.fetchTodaysSteps()
-//                }) {
-//                    HStack {
-//                        Image(systemName: "arrow.clockwise")
-//                        Text("Refresh Steps")
-//                    }
-//                    .font(.headline)
-//                    .foregroundColor(.stepperYellow)
-//                    .padding()
-//                    .background(
-//                        RoundedRectangle(cornerRadius: 12)
-//                            .stroke(Color.stepperYellow, lineWidth: 2)
-//                    )
-//                }
-//                .disabled(healthManager.isLoading)
-//            }
         }
         .padding()
         .sheet(isPresented: $showingTargetSetting) {
             TargetSettingView(targetManager: targetManager, isPresented: $showingTargetSetting)
         }
+        .onAppear {
+            updateNotificationCount()
+        }
+        .onChange(of: healthManager.stepCount) { _ in
+            // Update notification count when steps change (might indicate app became active)
+            updateNotificationCount()
+        }
+    }
+    
+    private func updateNotificationCount() {
+        if let notificationManager = notificationManager {
+            todaysNotificationCount = notificationManager.getTodaysInactivityNotificationCount()
+        }
+    }
+}
+
+// MARK: - Inactivity Notification Stats Component
+struct InactivityNotificationStatsView: View {
+    let notificationCount: Int
+    let isNotificationEnabled: Bool
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Image(systemName: "bell.fill")
+                    .foregroundColor(.stepperYellow)
+                Text("Inactivity Reminders Today")
+                    .font(.headline)
+                    .foregroundColor(.stepperCream.opacity(0.8))
+                Spacer()
+            }
+            
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(notificationCount)")
+                        .font(.system(size: 36, weight: .bold, design: .rounded))
+                        .foregroundColor(notificationCount > 0 ? .orange : .stepperLightTeal)
+                    
+                    Text(notificationCount == 1 ? "reminder sent" : "reminders sent")
+                        .font(.subheadline)
+                        .foregroundColor(.stepperCream.opacity(0.7))
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 4) {
+                    if !isNotificationEnabled {
+                        Image(systemName: "bell.slash")
+                            .font(.title2)
+                            .foregroundColor(.stepperCream.opacity(0.5))
+                        
+                        Text("Disabled")
+                            .font(.caption)
+                            .foregroundColor(.stepperCream.opacity(0.5))
+                    } else if notificationCount == 0 {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(.green)
+                        
+                        Text("Great job!")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    } else {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.title2)
+                            .foregroundColor(.orange)
+                        
+                        Text("Stay active")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                }
+            }
+            
+            if notificationCount > 0 {
+                HStack {
+                    Image(systemName: "info.circle")
+                        .font(.caption)
+                        .foregroundColor(.stepperCream.opacity(0.6))
+                    
+                    Text("You received \(notificationCount) reminder\(notificationCount == 1 ? "" : "s") to move today")
+                        .font(.caption)
+                        .foregroundColor(.stepperCream.opacity(0.6))
+                    
+                    Spacer()
+                }
+            } else if isNotificationEnabled {
+                HStack {
+                    Image(systemName: "checkmark.circle")
+                        .font(.caption)
+                        .foregroundColor(.green.opacity(0.8))
+                    
+                    Text("You stayed active today - no reminders needed!")
+                        .font(.caption)
+                        .foregroundColor(.green.opacity(0.8))
+                    
+                    Spacer()
+                }
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.stepperCream.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(
+                            notificationCount > 0 ? Color.orange.opacity(0.3) :
+                            (isNotificationEnabled ? Color.green.opacity(0.3) : Color.stepperCream.opacity(0.2)),
+                            lineWidth: 1
+                        )
+                )
+        )
     }
 }

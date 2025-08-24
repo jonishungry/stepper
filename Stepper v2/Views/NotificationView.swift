@@ -49,23 +49,12 @@ struct NotificationHeaderView: View {
     var body: some View {
         VStack(spacing: 15) {
             HStack {
-                Image(systemName: "bell.fill")
-                    .font(.system(size: 25))
-                    .foregroundColor(.stepperYellow)
-                
                 Text("Notifications")
                     .font(.largeTitle)
                     .fontWeight(.bold)
                     .foregroundColor(.stepperCream)
-                
-                Image(systemName: "bell.fill")
-                    .font(.system(size: 25))
-                    .foregroundColor(.stepperYellow)
             }
-            
-            Text("Stay motivated with smart reminders! 🔔")
-                .font(.subheadline)
-                .foregroundColor(.stepperCream.opacity(0.8))
+
         }
     }
 }
@@ -337,7 +326,7 @@ struct InactivityNotificationSection: View {
                                     notificationManager.saveSettings()
                                 }
                             )) {
-                                ForEach([15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 90, 120], id: \.self) { minutes in
+                                ForEach([1,15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 90, 120], id: \.self) { minutes in
                                     Text("\(minutes) min").tag(minutes)
                                 }
                             }

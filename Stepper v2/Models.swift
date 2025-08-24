@@ -1,18 +1,13 @@
-//
-//  Models.swift
-//  Stepper v2
-//
-//  Created by Jonathan Chan on 6/19/25.
-//
 import Foundation
 import SwiftUI
 
-// MARK: - Step Data Model
+// MARK: - Step Data Model with Notification Count
 struct StepData: Identifiable {
     let id = UUID()
     let date: Date
     let steps: Int
     let targetSteps: Int
+    var inactivityNotifications: Int = 0  // NEW: Track daily notification count
     
     var dayName: String {
         let formatter = DateFormatter()
@@ -44,8 +39,20 @@ struct StepData: Identifiable {
         guard targetSteps > 0 else { return 0 }
         return min(Double(steps) / Double(targetSteps), 1.0)
     }
+    
+    // NEW: Helper for notification status
+    var notificationStatus: String {
+        if inactivityNotifications == 0 {
+            return "Active day"
+        } else if inactivityNotifications == 1 {
+            return "1 reminder"
+        } else {
+            return "\(inactivityNotifications) reminders"
+        }
+    }
 }
 
+// MARK: - Updated MenuItem with Notifications
 enum MenuItem: String, CaseIterable {
     case today = "Today's Steps"
     case history = "Step History"
@@ -62,7 +69,7 @@ enum MenuItem: String, CaseIterable {
         }
     }
 }
-// Add the new color theme:
+
 // MARK: - Color Theme
 extension Color {
     static let stepperTeal = Color(red: 0.2, green: 0.4, blue: 0.45)

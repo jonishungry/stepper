@@ -65,6 +65,10 @@ class HealthManager: ObservableObject {
         notificationManager.updateStepCount(stepCount, targetSteps: currentTarget)
     }
     
+    func getNotificationManager() -> NotificationManager? {
+        return notificationManager
+    }
+    
     private func saveStepData(_ steps: Int, for date: Date, target: Int) {
         guard let context = context else {
             print("⚠️ Core Data context not available - skipping save")
