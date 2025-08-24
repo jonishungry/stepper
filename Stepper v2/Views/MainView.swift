@@ -1,8 +1,9 @@
 import SwiftUI
 
-// MARK: - Main View with Sidebar
+// MARK: - Main View with Sidebar and Notifications
 struct MainView: View {
     @StateObject private var healthManager = HealthManager()
+    @StateObject private var notificationManager = NotificationManager()
     @State private var showingSidebar = false
     @State private var selectedMenuItem: MenuItem = .today
     
@@ -23,6 +24,8 @@ struct MainView: View {
                         TodayStepsView(healthManager: healthManager)
                     case .history:
                         StepHistoryView(healthManager: healthManager)
+                    case .notifications:
+                        NotificationSettingsView(notificationManager: notificationManager)
                     }
                 }
                 .navigationBarTitleDisplayMode(.inline)
@@ -66,6 +69,9 @@ struct MainView: View {
         .onAppear {
             // Set up Core Data context
             healthManager.setContext(PersistenceController.shared.container.viewContext)
+            
+            // Connect health manager to notification manager
+            healthManager.setNotificationManager(notificationManager)
             
             // Only fetch data if authorized - don't auto-request permission
             if healthManager.authorizationStatus == "Authorized" {

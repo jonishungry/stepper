@@ -21,6 +21,8 @@ class HealthManager: ObservableObject {
     @Published var isRealtimeActive: Bool = false
     
     private let targetManager = TargetManager()
+    private var notificationManager: NotificationManager?
+
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var refreshTimer: Timer?
     private var stepQuery: HKQuery?
@@ -49,6 +51,18 @@ class HealthManager: ObservableObject {
     // MARK: - Core Data Methods
     func setContext(_ context: NSManagedObjectContext) {
         self.context = context
+    }
+    
+    // MARK: - Notification Manager Integration
+    func setNotificationManager(_ manager: NotificationManager) {
+        self.notificationManager = manager
+    }
+    
+    private func updateNotificationManager() {
+        guard let notificationManager = notificationManager else { return }
+        
+        let currentTarget = targetManager.currentTarget
+        notificationManager.updateStepCount(stepCount, targetSteps: currentTarget)
     }
     
     private func saveStepData(_ steps: Int, for date: Date, target: Int) {

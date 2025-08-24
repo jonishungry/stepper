@@ -49,13 +49,16 @@ struct StepData: Identifiable {
 enum MenuItem: String, CaseIterable {
     case today = "Today's Steps"
     case history = "Step History"
+    case notifications = "Notifications"
     
     var icon: String {
         switch self {
         case .today:
-            return "shoe.fill"  // Changed from "figure.walk"
+            return "figure.fill"
         case .history:
-            return "chart.bar.fill"  // Changed from "chart.bar"
+            return "chart.bar.fill"
+        case .notifications:
+            return "bell.fill"
         }
     }
 }
