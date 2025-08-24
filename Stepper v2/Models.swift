@@ -61,7 +61,7 @@ enum MenuItem: String, CaseIterable {
     var icon: String {
         switch self {
         case .today:
-            return "figure.fill"
+            return "figure.run"
         case .history:
             return "chart.bar.fill"
         case .notifications:

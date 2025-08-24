@@ -284,7 +284,7 @@ struct InactivityNotificationSection: View {
             HStack {
                 Image(systemName: "figure.walk")
                     .foregroundColor(.stepperYellow)
-                Text("Inactivity Reminder")
+                Text("Inactivity Nudge")
                     .font(.headline)
                     .foregroundColor(.stepperCream)
                 Spacer()
@@ -333,15 +333,6 @@ struct InactivityNotificationSection: View {
                             .pickerStyle(WheelPickerStyle())
                             .frame(height: 100)
                             
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("of inactivity")
-                                    .font(.subheadline)
-                                    .foregroundColor(.stepperCream)
-                                
-                                Text("during active hours")
-                                    .font(.caption)
-                                    .foregroundColor(.stepperCream.opacity(0.7))
-                            }
                         }
                     }
                     .padding()

@@ -229,7 +229,7 @@ struct InactivityNotificationStatsView: View {
             HStack {
                 Image(systemName: "bell.fill")
                     .foregroundColor(.stepperYellow)
-                Text("Inactivity Reminders Today")
+                Text("Nudges Today")
                     .font(.headline)
                     .foregroundColor(.stepperCream.opacity(0.8))
                 Spacer()
@@ -241,8 +241,8 @@ struct InactivityNotificationStatsView: View {
                         .font(.system(size: 36, weight: .bold, design: .rounded))
                         .foregroundColor(notificationCount > 0 ? .orange : .stepperLightTeal)
                     
-                    Text(notificationCount == 1 ? "reminder sent" : "reminders sent")
-                        .font(.subheadline)
+                    Text(notificationCount == 1 ? "Reminder sent" : "Reminders sent")
+                        .font(.caption)
                         .foregroundColor(.stepperCream.opacity(0.7))
                 }
                 
@@ -277,31 +277,6 @@ struct InactivityNotificationStatsView: View {
                 }
             }
             
-            if notificationCount > 0 {
-                HStack {
-                    Image(systemName: "info.circle")
-                        .font(.caption)
-                        .foregroundColor(.stepperCream.opacity(0.6))
-                    
-                    Text("You received \(notificationCount) reminder\(notificationCount == 1 ? "" : "s") to move today")
-                        .font(.caption)
-                        .foregroundColor(.stepperCream.opacity(0.6))
-                    
-                    Spacer()
-                }
-            } else if isNotificationEnabled {
-                HStack {
-                    Image(systemName: "checkmark.circle")
-                        .font(.caption)
-                        .foregroundColor(.green.opacity(0.8))
-                    
-                    Text("You stayed active today - no reminders needed!")
-                        .font(.caption)
-                        .foregroundColor(.green.opacity(0.8))
-                    
-                    Spacer()
-                }
-            }
         }
         .padding()
         .background(
