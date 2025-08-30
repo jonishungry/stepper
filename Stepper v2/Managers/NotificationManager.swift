@@ -65,26 +65,31 @@ struct NotificationSettings: Codable {
     }
 }
 
-// MARK: - Robust Notification Manager with HealthKit Background Delivery
+// MARK: - Notification Manager with HealthKit Background Delivery
 class NotificationManager: ObservableObject {
+    // MARK: - Published Properties
     @Published var settings = NotificationSettings()
     @Published var notificationPermissionStatus: UNAuthorizationStatus = .notDetermined
     
+    // MARK: - Private Properties
     private let healthStore = HKHealthStore()
     private let userDefaults = UserDefaults.standard
+    
+    // UserDefaults Keys
     private let settingsKey = "NotificationSettings"
     private let lastActivityKey = "LastActivityTime"
     private let lastStepCountKey = "LastStepCount"
-    private let lastCheckTimeKey = "LastInactivityCheck"
-    
     private let lastNotificationKey = "LastInactivityNotification"
     private let dailyNotificationCountKey = "DailyInactivityNotificationCounts"
+    private let lastCheckTimeKey = "LastInactivityCheck"
     
+    // State Variables
     private var lastStepCount: Int = 0
     private var lastActivityTime: Date = Date()
-    private var lastNotificationTime: Date = Date.distantPast  // Track when we last sent notification
+    private var lastNotificationTime: Date = Date.distantPast
     private var inactivityTimer: Timer?
     
+    // MARK: - Initializer
     init() {
         loadSettings()
         loadLastActivity()
@@ -97,13 +102,12 @@ class NotificationManager: ObservableObject {
         inactivityTimer?.invalidate()
     }
     
-    // MARK: - HealthKit Background Delivery Setup
+    // MARK: - HealthKit Background Delivery
     private func setupHealthKitBackgroundDelivery() {
         guard HKHealthStore.isHealthDataAvailable() else { return }
         
         let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
         
-        // Enable background delivery for step count updates
         healthStore.enableBackgroundDelivery(for: stepType, frequency: .immediate) { [weak self] success, error in
             if success {
                 print("✅ HealthKit background delivery enabled")
@@ -127,7 +131,6 @@ class NotificationManager: ObservableObject {
             
             print("🩺 HealthKit detected step count change - app may be in background")
             
-            // This runs even when app is killed and iOS wakes it up!
             DispatchQueue.main.async {
                 self?.handleHealthKitUpdate()
             }
@@ -140,7 +143,6 @@ class NotificationManager: ObservableObject {
     }
     
     private func handleHealthKitUpdate() {
-        // Fetch latest step count
         fetchLatestStepCount { [weak self] newStepCount in
             guard let self = self else { return }
             
@@ -149,15 +151,11 @@ class NotificationManager: ObservableObject {
             if newStepCount > previousStepCount {
                 print("📈 Background step update: \(previousStepCount) → \(newStepCount)")
                 
-                // User was active - update activity time
                 self.lastActivityTime = Date()
                 self.lastStepCount = newStepCount
                 self.saveLastActivity()
                 
-                // Cancel any pending inactivity notifications since user is now active
                 self.cancelPendingInactivityNotifications()
-                
-                // Reschedule inactivity check from this new activity time
                 self.scheduleNextInactivityCheck()
             }
         }
@@ -192,9 +190,101 @@ class NotificationManager: ObservableObject {
         healthStore.execute(query)
     }
     
-    // MARK: - Enhanced Repeated Inactivity Detection
+    // MARK: - App Lifecycle Management
+    private func setupAppLifecycleNotifications() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillTerminate),
+            name: UIApplication.willTerminateNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+    }
+    
+    @objc private func appDidBecomeActive() {
+        print("📱 App became active - checking for missed activity and clearing badge")
+        
+        clearAppBadge()
+        checkInactivityAfterAppOpen()
+        setupInactivityTimer()
+    }
+    
+    @objc private func appDidEnterBackground() {
+        print("🌙 App entered background - maintaining badge count")
+        // Don't clear badge when going to background - let it accumulate
+    }
+    
+    @objc private func appWillTerminate() {
+        print("💀 App will terminate - saving state")
+        saveLastActivity()
+        userDefaults.set(Date(), forKey: lastCheckTimeKey)
+    }
+    
+    private func checkInactivityAfterAppOpen() {
+        let lastCheck = userDefaults.object(forKey: lastCheckTimeKey) as? Date ?? lastActivityTime
+        let timeSinceLastCheck = Date().timeIntervalSince(lastCheck)
+        
+        if timeSinceLastCheck > 300 { // 5+ minutes
+            fetchLatestStepCount { [weak self] currentSteps in
+                guard let self = self else { return }
+                
+                if currentSteps > self.lastStepCount {
+                    print("📈 User was active while app was closed: \(self.lastStepCount) → \(currentSteps)")
+                    self.lastActivityTime = Date()
+                    self.lastStepCount = currentSteps
+                    self.saveLastActivity()
+                    
+                    self.cancelPendingInactivityNotifications()
+                } else {
+                    self.checkAndSendInactivityNotification()
+                }
+                
+                self.scheduleNextInactivityCheck()
+            }
+        }
+    }
+    
+    // MARK: - Badge Management
+    private func clearAppBadge() {
+        DispatchQueue.main.async {
+            UIApplication.shared.applicationIconBadgeNumber = 0
+            print("🔄 Cleared app badge")
+        }
+        
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+        print("🗑️ Cleared delivered notifications from notification center")
+    }
+    
+    private func updateAppBadge(increment: Bool = true) {
+        DispatchQueue.main.async {
+            if increment {
+                UIApplication.shared.applicationIconBadgeNumber += 1
+            } else {
+                UIApplication.shared.applicationIconBadgeNumber = 0
+            }
+            print("🔢 App badge updated to: \(UIApplication.shared.applicationIconBadgeNumber)")
+        }
+    }
+    
+    func clearBadge() {
+        clearAppBadge()
+    }
+    
+    // MARK: - Inactivity Detection
     private func scheduleNextInactivityCheck() {
-        // Cancel existing notifications
         cancelPendingInactivityNotifications()
         
         guard settings.inactivityNotificationEnabled else { return }
@@ -202,15 +292,10 @@ class NotificationManager: ObservableObject {
         let now = Date()
         let timeSinceLastActivity = now.timeIntervalSince(lastActivityTime)
         
-        // If user is already inactive, schedule immediate and repeated checks
         if timeSinceLastActivity >= settings.inactivityDuration {
-            // Check if we should send notification right now
             checkAndSendInactivityNotification()
-            
-            // Schedule repeated notifications every inactivity duration period
             scheduleRepeatingInactivityNotifications()
         } else {
-            // User is still active, schedule first check when inactivity duration is reached
             let timeUntilInactive = settings.inactivityDuration - timeSinceLastActivity
             scheduleInactivityNotification(delay: timeUntilInactive)
         }
@@ -221,15 +306,14 @@ class NotificationManager: ObservableObject {
         
         print("📅 Scheduling repeating inactivity notifications every \(Int(settings.inactivityDuration / 60)) minutes")
         
-        // Schedule notifications at regular intervals (every inactivity duration)
-        for i in 1...12 { // Next 12 intervals (up to 6 hours if 30min intervals)
+        for i in 1...12 {
             let delay = settings.inactivityDuration * Double(i)
             
             let content = UNMutableNotificationContent()
             content.title = "Still Inactive! 👟"
             content.body = "You haven't moved in \(Int((settings.inactivityDuration * Double(i)) / 60)) minutes. Time to get those steps in!"
             content.sound = .default
-            content.badge = 1
+            content.badge = NSNumber(value: UIApplication.shared.applicationIconBadgeNumber + i)
             content.userInfo = [
                 "type": "repeated_inactivity",
                 "interval": i,
@@ -258,7 +342,7 @@ class NotificationManager: ObservableObject {
         content.title = "Time to Move! 👟"
         content.body = "You haven't moved in \(Int(settings.inactivityDuration / 60)) minutes. Let's get those steps in!"
         content.sound = .default
-        content.badge = 1
+        content.badge = NSNumber(value: UIApplication.shared.applicationIconBadgeNumber + 1)
         content.userInfo = [
             "type": "first_inactivity",
             "scheduledFor": Date().addingTimeInterval(delay)
@@ -277,36 +361,10 @@ class NotificationManager: ObservableObject {
             } else {
                 print("✅ Scheduled first inactivity check in \(Int(delay/60)) minutes")
                 
-                // After the first notification, schedule repeating ones
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay + 1) {
                     self?.scheduleRepeatingInactivityNotifications()
                 }
             }
-        }
-    }
-    
-    private func schedulePeriodicInactivityChecks() {
-        // Schedule additional checks every 15 minutes to catch edge cases
-        // These will verify inactivity when user opens the app
-        
-        for i in 1...8 { // Next 2 hours
-            let delay = TimeInterval(i * 15 * 60) // Every 15 minutes
-            
-            let content = UNMutableNotificationContent()
-            content.title = "Stepper Activity Check"
-            content.body = "Checking your activity levels..."
-            content.sound = nil // Silent notification
-            content.badge = 0
-            content.userInfo = ["type": "periodic_check"]
-            
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: delay, repeats: false)
-            let request = UNNotificationRequest(
-                identifier: "periodic-check-\(i)-\(Date().timeIntervalSince1970)",
-                content: content,
-                trigger: trigger
-            )
-            
-            UNUserNotificationCenter.current().add(request) { _ in }
         }
     }
     
@@ -315,20 +373,17 @@ class NotificationManager: ObservableObject {
         let timeSinceLastActivity = now.timeIntervalSince(lastActivityTime)
         let timeSinceLastNotification = now.timeIntervalSince(lastNotificationTime)
         
-        // Verify user is actually inactive for the required duration
         guard timeSinceLastActivity >= settings.inactivityDuration else {
             print("📱 User became active recently, skipping inactivity notification")
             return
         }
         
-        // Check if we've already sent a notification recently (prevent spam)
-        let minimumNotificationInterval: TimeInterval = 60 // 1 minute minimum between notifications
+        let minimumNotificationInterval: TimeInterval = 60 // 1 minute minimum
         guard timeSinceLastNotification >= minimumNotificationInterval else {
             print("🔕 Notification sent recently, preventing spam")
             return
         }
         
-        // Check whitelist times
         let isWithinWhitelist = settings.whitelistTimeIntervals.contains { interval in
             interval.contains(now)
         }
@@ -338,7 +393,6 @@ class NotificationManager: ObservableObject {
             return
         }
         
-        // Send the notification
         sendInactivityNotification(actualInactivityTime: timeSinceLastActivity)
     }
     
@@ -347,12 +401,12 @@ class NotificationManager: ObservableObject {
         content.title = "Time to Move! 👟"
         content.body = "You haven't moved in \(Int(actualInactivityTime / 60)) minutes. Let's get those steps in!"
         content.sound = .default
-        content.badge = 1
+        content.badge = NSNumber(value: UIApplication.shared.applicationIconBadgeNumber + 1)
         
         let request = UNNotificationRequest(
             identifier: "inactivity-alert-\(Date().timeIntervalSince1970)",
             content: content,
-            trigger: nil // Send immediately
+            trigger: nil
         )
         
         UNUserNotificationCenter.current().add(request) { [weak self] error in
@@ -361,19 +415,12 @@ class NotificationManager: ObservableObject {
             } else {
                 print("✅ Sent inactivity notification (inactive for \(Int(actualInactivityTime / 60)) minutes)")
                 
-                // Record when we sent this notification (but DON'T reset lastActivityTime)
+                self?.updateAppBadge(increment: true)
                 self?.lastNotificationTime = Date()
-                
-                // Track daily notification count
                 self?.incrementDailyNotificationCount()
-                
                 self?.saveLastActivity()
             }
         }
-        
-        // ✅ KEY CHANGE: Do NOT reset lastActivityTime here
-        // This allows repeated notifications to continue firing
-        // Only actual step movement should reset lastActivityTime
     }
     
     private func cancelPendingInactivityNotifications() {
@@ -392,69 +439,7 @@ class NotificationManager: ObservableObject {
         }
     }
     
-    // MARK: - App Lifecycle Management
-    private func setupAppLifecycleNotifications() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(appDidBecomeActive),
-            name: UIApplication.didBecomeActiveNotification,
-            object: nil
-        )
-        
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(appWillTerminate),
-            name: UIApplication.willTerminateNotification,
-            object: nil
-        )
-    }
-    
-    @objc private func appDidBecomeActive() {
-        print("📱 App became active - checking for missed activity")
-        
-        // Check what happened while app was closed/backgrounded
-        checkInactivityAfterAppOpen()
-        
-        // Resume normal monitoring
-        setupInactivityTimer()
-    }
-    
-    @objc private func appWillTerminate() {
-        print("💀 App will terminate - saving state")
-        saveLastActivity()
-        userDefaults.set(Date(), forKey: lastCheckTimeKey)
-    }
-    
-    private func checkInactivityAfterAppOpen() {
-        let lastCheck = userDefaults.object(forKey: lastCheckTimeKey) as? Date ?? lastActivityTime
-        let timeSinceLastCheck = Date().timeIntervalSince(lastCheck)
-        
-        // If significant time passed, check for inactivity
-        if timeSinceLastCheck > 300 { // 5+ minutes
-            fetchLatestStepCount { [weak self] currentSteps in
-                guard let self = self else { return }
-                
-                if currentSteps > self.lastStepCount {
-                    // User was active while app was closed
-                    print("📈 User was active while app was closed: \(self.lastStepCount) → \(currentSteps)")
-                    self.lastActivityTime = Date() // Approximate
-                    self.lastStepCount = currentSteps
-                    self.saveLastActivity()
-                    
-                    // Cancel pending notifications since user was active
-                    self.cancelPendingInactivityNotifications()
-                } else {
-                    // User might be inactive - check if notification needed
-                    self.checkAndSendInactivityNotification()
-                }
-                
-                // Always reschedule for future
-                self.scheduleNextInactivityCheck()
-            }
-        }
-    }
-    
-    // MARK: - Foreground Timer (same as before)
+    // MARK: - Foreground Timer
     private func setupInactivityTimer() {
         inactivityTimer?.invalidate()
         
@@ -464,7 +449,6 @@ class NotificationManager: ObservableObject {
     }
     
     private func checkForInactivity() {
-        // Regular foreground inactivity check (same as before)
         guard settings.inactivityNotificationEnabled else { return }
         
         let now = Date()
@@ -479,31 +463,6 @@ class NotificationManager: ObservableObject {
         guard isWithinWhitelist else { return }
         
         sendInactivityNotification(actualInactivityTime: timeSinceLastActivity)
-    }
-    
-    // MARK: - Public Interface (simplified for brevity)
-    func updateStepCount(_ stepCount: Int, targetSteps: Int) {
-        let previousStepCount = lastStepCount
-        lastStepCount = stepCount
-        
-        if stepCount > previousStepCount {
-            print("📈 User became active: \(previousStepCount) → \(stepCount) steps")
-            
-            // User is now active - reset activity tracking
-            lastActivityTime = Date()
-            saveLastActivity()
-            
-            // Cancel all pending inactivity notifications since user is active
-            cancelPendingInactivityNotifications()
-            
-            // Schedule fresh inactivity monitoring from this point
-            scheduleNextInactivityCheck()
-        }
-        
-        // Handle bedtime notifications...
-        if settings.bedtimeNotificationEnabled {
-            scheduleBedtimeNotification(currentSteps: stepCount, targetSteps: targetSteps)
-        }
     }
     
     // MARK: - Daily Notification Tracking
@@ -547,6 +506,8 @@ class NotificationManager: ObservableObject {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
     }
+    
+    // MARK: - Storage & Settings
     private func saveLastActivity() {
         userDefaults.set(lastActivityTime, forKey: lastActivityKey)
         userDefaults.set(lastStepCount, forKey: lastStepCountKey)
@@ -573,6 +534,7 @@ class NotificationManager: ObservableObject {
         scheduleNextInactivityCheck()
     }
     
+    // MARK: - Permission Management
     func checkNotificationPermission() {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             DispatchQueue.main.async {
@@ -589,78 +551,28 @@ class NotificationManager: ObservableObject {
         }
     }
     
-    // MARK: - Bedtime Notification
-    private func scheduleBedtimeNotification(currentSteps: Int, targetSteps: Int) {
-        guard currentSteps < targetSteps else {
-            // Goal already achieved
-            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["bedtime-reminder"])
-            return
+    // MARK: - Public Interface
+    func updateStepCount(_ stepCount: Int, targetSteps: Int) {
+        let previousStepCount = lastStepCount
+        lastStepCount = stepCount
+        
+        if stepCount > previousStepCount {
+            print("📈 User became active: \(previousStepCount) → \(stepCount) steps")
+            
+            lastActivityTime = Date()
+            saveLastActivity()
+            
+            cancelPendingInactivityNotifications()
+            scheduleNextInactivityCheck()
         }
         
-        guard let bedtime = getBedtime() else {
-            print("⚠️ No bedtime found in Sleep schedule")
-            return
-        }
-        
-        let stepsRemaining = targetSteps - currentSteps
-        let notificationTime = Calendar.current.date(byAdding: .minute,
-                                                   value: -settings.bedtimeOffsetMinutes,
-                                                   to: bedtime)!
-        
-        // Only schedule if notification time is in the future
-        guard notificationTime > Date() else {
-            print("⚠️ Bedtime notification time has passed")
-            return
-        }
-        
-        let content = UNMutableNotificationContent()
-        content.title = "Stepper Reminder 🏃‍♀️"
-        content.body = "You need \(stepsRemaining) more steps before bedtime in \(settings.bedtimeHours)h \(settings.bedtimeMinutes)m!"
-        content.sound = .default
-        content.badge = 1
-        
-        let triggerComponents = Calendar.current.dateComponents([.hour, .minute], from: notificationTime)
-        let trigger = UNCalendarNotificationTrigger(dateMatching: triggerComponents, repeats: false)
-        
-        let request = UNNotificationRequest(identifier: "bedtime-reminder", content: content, trigger: trigger)
-        
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                print("❌ Failed to schedule bedtime notification: \(error)")
-            } else {
-                let formatter = DateFormatter()
-                formatter.timeStyle = .short
-                print("✅ Bedtime notification scheduled for \(formatter.string(from: notificationTime))")
-            }
+        if settings.bedtimeNotificationEnabled {
+            scheduleBedtimeNotification(currentSteps: stepCount, targetSteps: targetSteps)
         }
     }
     
-    private func getBedtime() -> Date? {
-        let calendar = Calendar.current
-        let bedtimeComponents = calendar.dateComponents([.hour, .minute], from: settings.customBedtime)
-        
-        // Create bedtime for today
-        var todayComponents = calendar.dateComponents([.year, .month, .day], from: Date())
-        todayComponents.hour = bedtimeComponents.hour
-        todayComponents.minute = bedtimeComponents.minute
-        
-        guard let bedtime = calendar.date(from: todayComponents) else { return nil }
-        
-        // If bedtime has passed today, use tomorrow's bedtime
-        if bedtime < Date() {
-            return calendar.date(byAdding: .day, value: 1, to: bedtime)
-        }
-        
-        return bedtime
-    }
-    
-    // MARK: - Public Methods
     func scheduleNotifications() {
-        // Remove all pending notifications
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
-        
-        // Reschedule based on current settings and step count
-        // This will be called when settings change or step count updates
         print("🔄 Notifications rescheduled")
     }
     
@@ -668,7 +580,6 @@ class NotificationManager: ObservableObject {
         let now = Date()
         let calendar = Calendar.current
         
-        // Default to 9 AM - 5 PM
         var startComponents = calendar.dateComponents([.hour, .minute], from: now)
         startComponents.hour = 9
         startComponents.minute = 0
@@ -696,5 +607,66 @@ class NotificationManager: ObservableObject {
         settings.whitelistTimeIntervals[index].startTime = startTime
         settings.whitelistTimeIntervals[index].endTime = endTime
         saveSettings()
+    }
+    
+    // MARK: - Bedtime Notifications
+    private func scheduleBedtimeNotification(currentSteps: Int, targetSteps: Int) {
+        guard currentSteps < targetSteps else {
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["bedtime-reminder"])
+            return
+        }
+        
+        guard let bedtime = getBedtime() else {
+            print("⚠️ No bedtime found")
+            return
+        }
+        
+        let stepsRemaining = targetSteps - currentSteps
+        let notificationTime = Calendar.current.date(byAdding: .minute,
+                                                   value: -settings.bedtimeOffsetMinutes,
+                                                   to: bedtime)!
+        
+        guard notificationTime > Date() else {
+            print("⚠️ Bedtime notification time has passed")
+            return
+        }
+        
+        let content = UNMutableNotificationContent()
+        content.title = "Stepper Reminder 🏃‍♀️"
+        content.body = "You need \(stepsRemaining) more steps before bedtime in \(settings.bedtimeHours)h \(settings.bedtimeMinutes)m!"
+        content.sound = .default
+        content.badge = NSNumber(value: UIApplication.shared.applicationIconBadgeNumber + 1)
+        
+        let triggerComponents = Calendar.current.dateComponents([.hour, .minute], from: notificationTime)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: triggerComponents, repeats: false)
+        
+        let request = UNNotificationRequest(identifier: "bedtime-reminder", content: content, trigger: trigger)
+        
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("❌ Failed to schedule bedtime notification: \(error)")
+            } else {
+                let formatter = DateFormatter()
+                formatter.timeStyle = .short
+                print("✅ Bedtime notification scheduled for \(formatter.string(from: notificationTime))")
+            }
+        }
+    }
+    
+    private func getBedtime() -> Date? {
+        let calendar = Calendar.current
+        let bedtimeComponents = calendar.dateComponents([.hour, .minute], from: settings.customBedtime)
+        
+        var todayComponents = calendar.dateComponents([.year, .month, .day], from: Date())
+        todayComponents.hour = bedtimeComponents.hour
+        todayComponents.minute = bedtimeComponents.minute
+        
+        guard let bedtime = calendar.date(from: todayComponents) else { return nil }
+        
+        if bedtime < Date() {
+            return calendar.date(byAdding: .day, value: 1, to: bedtime)
+        }
+        
+        return bedtime
     }
 }

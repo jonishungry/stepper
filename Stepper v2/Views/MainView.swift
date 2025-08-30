@@ -38,7 +38,7 @@ struct MainView: View {
                         }) {
                             Image(systemName: "line.horizontal.3")
                                 .font(.title2)
-                                .foregroundColor(.primary)
+                                .foregroundColor(showingSidebar ? .black : .primary)
                         }
                     }
                 }
