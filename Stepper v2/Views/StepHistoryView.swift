@@ -81,18 +81,6 @@ struct StepHistoryContentView: View {
         .onAppear {
             refreshAction()
         }
-        .overlay(
-            // Overlay positioned with .overlay to not affect layout
-            Group {
-                if showingDayDetail, let selectedDay = selectedDay {
-                    DayDetailOverlay(
-                        stepData: selectedDay,
-                        healthManager: healthManager,
-                        isPresented: $showingDayDetail
-                    )
-                }
-            }
-        )
     }
 }
 
@@ -174,18 +162,20 @@ struct StepHistoryChartView: View {
             }
             
             // Overlay Day Detail View
-            if showingDayDetail, let selectedDay = selectedDay {
+            if showingDayDetail, selectedDay != nil {
+                let daytoUpdate = selectedDay!
                             Rectangle()
                                 .fill(Color.clear)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     withAnimation(.easeOut(duration: 0.3)) {
                                         showingDayDetail = false
+                                        selectedDay = nil
                                     }
                                 }
                             
                             DayDetailOverlay(
-                                stepData: selectedDay,
+                                stepData: daytoUpdate,
                                 healthManager: healthManager,
                                 isPresented: $showingDayDetail
                             )
