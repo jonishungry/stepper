@@ -8,6 +8,7 @@ import SwiftUI
 import Charts
 
 // MARK: - Day Detail View
+
 struct DayDetailOverlay: View {
     let stepData: StepData
     @ObservedObject var healthManager: HealthManager

@@ -110,48 +110,63 @@ struct StepHistoryChartView: View {
         ZStack {
             VStack {
                 ScrollView(.horizontal, showsIndicators: true) {
-                    Chart(sortedSteps) { stepData in
-                        BarMark(
-                            x: .value("Date", stepData.date, unit: .day),
-                            y: .value("Steps", stepData.steps)
-                        )
-                        .foregroundStyle(stepData.targetMet ? Color.stepperYellow : Color.stepperLightTeal)
-                        .opacity(selectedDay?.id == stepData.id ? 1.0 : 0.7)
-                        .cornerRadius(6)
-                        
-                        PointMark(
-                            x: .value("Date", stepData.date, unit: .day),
-                            y: .value("Target", stepData.targetSteps)
-                        )
-                        .symbol(Circle())
-                        .symbolSize(selectedDay?.id == stepData.id ? 140 : 100)
-                        .foregroundStyle(Color.stepperCream)
-                    }
-                    .chartXAxis {
-                        AxisMarks(values: .stride(by: .day)) { value in
-                            if let date = value.as(Date.self) {
-                                AxisGridLine()
-                                AxisValueLabel {
-                                    VStack(spacing: 2) {
-                                        Text(dayFormatter.string(from: date))
-                                            .font(.caption2)
-                                            .foregroundColor(.stepperCream)
-                                        Text(dateFormatter.string(from: date))
-                                            .font(.caption2)
-                                            .foregroundColor(.stepperCream.opacity(0.8))
+                    ZStack {
+                        Chart(sortedSteps) { stepData in
+                            BarMark(
+                                x: .value("Date", stepData.date, unit: .day),
+                                y: .value("Steps", stepData.steps)
+                            )
+                            .foregroundStyle(getBarColor(for: stepData))
+                            .opacity(0.9)
+                            .cornerRadius(6)
+                            
+                            PointMark(
+                                x: .value("Date", stepData.date, unit: .day),
+                                y: .value("Target", stepData.targetSteps)
+                            )
+                            .symbol(Circle())
+                            .symbolSize(isSelected(stepData) ? 140 : 100)
+                            .foregroundStyle(isSelected(stepData) ? Color.white : Color.stepperCream)
+                        }
+                        .chartXAxis {
+                            AxisMarks(values: .stride(by: .day)) { value in
+                                if let date = value.as(Date.self) {
+                                    AxisGridLine()
+                                    AxisValueLabel {
+                                        VStack(spacing: 2) {
+                                            Text(dayFormatter.string(from: date))
+                                                .font(.caption2)
+                                                .foregroundColor(isDateSelected(date) ? .white : .stepperCream)
+                                                .fontWeight(isDateSelected(date) ? .bold : .regular)
+                                            Text(dateFormatter.string(from: date))
+                                                .font(.caption2)
+                                                .foregroundColor(isDateSelected(date) ? .white.opacity(0.9) : .stepperCream.opacity(0.8))
+                                                .fontWeight(isDateSelected(date) ? .semibold : .regular)
+                                        }
                                     }
                                 }
                             }
                         }
+                        .chartYScale(domain: 0...maxChartValue)
+                        .frame(width: CGFloat(sortedSteps.count) * 60, height: 300)
+                        .animation(.easeInOut(duration: 0.2), value: selectedDay?.id)
+                        
+                        // Invisible tap detection overlay
+                        HStack(spacing: 0) {
+                            ForEach(Array(sortedSteps.enumerated()), id: \.element.id) { index, stepData in
+                                Rectangle()
+                                    .fill(Color.clear)
+                                    .frame(width: 60, height: 300)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        handleBarTap(stepData)
+                                    }
+                            }
+                        }
                     }
-                    .chartYScale(domain: 0...maxChartValue)
-                    .frame(width: CGFloat(sortedSteps.count) * 60, height: 300)
                     .padding()
                 }
                 .background(ChartBackgroundStyle())
-                .onTapGesture { location in
-                    handleChartTap(location: location)
-                }
                 
                 Text("Swipe to see more days • Tap any bar for details")
                     .font(.caption)
@@ -160,22 +175,64 @@ struct StepHistoryChartView: View {
             
             // Overlay Day Detail View
             if showingDayDetail, let selectedDay = selectedDay {
-                Rectangle()
-                    .fill(Color.clear)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        withAnimation(.easeOut(duration: 0.3)) {
-                            showingDayDetail = false
+                            Rectangle()
+                                .fill(Color.clear)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    withAnimation(.easeOut(duration: 0.3)) {
+                                        showingDayDetail = false
+                                    }
+                                }
+                            
+                            DayDetailOverlay(
+                                stepData: selectedDay,
+                                healthManager: healthManager,
+                                isPresented: $showingDayDetail
+                            )
                         }
-                    }
-                
-                DayDetailOverlay(
-                    stepData: selectedDay,
-                    healthManager: healthManager,
-                    isPresented: $showingDayDetail
-                )
+        }
+        .animation(.easeInOut(duration: 0.2), value: showingDayDetail)
+    }
+    
+    // MARK: - Helper Functions
+    private func handleBarTap(_ stepData: StepData) {
+        print("📊 Tapped bar for \(stepData.weekdayName) \(stepData.fullDate)")
+        
+        if isSelected(stepData) {
+            // Tapping already selected bar - deselect it
+            print("🔄 Deselecting bar")
+            withAnimation(.easeOut(duration: 0.2)) {
+                selectedDay = nil
+                showingDayDetail = false
+            }
+        } else {
+            // Tapping new bar - select it
+            print("✅ Selecting new bar")
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedDay = stepData
+                showingDayDetail = true
             }
         }
+    }
+    
+    private func isSelected(_ stepData: StepData) -> Bool {
+        return selectedDay?.id == stepData.id
+    }
+    
+    private func getBarColor(for stepData: StepData) -> Color {
+        if isSelected(stepData) {
+            // Selected bar - bright white
+            return Color.white
+        } else {
+            // Normal bar colors
+            return stepData.targetMet ? Color.stepperYellow : Color.stepperLightTeal
+        }
+    }
+    
+    private func isDateSelected(_ date: Date) -> Bool {
+        guard let selectedDay = selectedDay else { return false }
+        let calendar = Calendar.current
+        return calendar.isDate(date, inSameDayAs: selectedDay.date)
     }
     
     private var maxChartValue: Int {
@@ -194,19 +251,6 @@ struct StepHistoryChartView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "M/d"
         return formatter
-    }
-    
-    private func handleChartTap(location: CGPoint) {
-        let chartWidth = CGFloat(sortedSteps.count) * 60
-        let barWidth: CGFloat = 60
-        let tappedIndex = Int(location.x / barWidth)
-        
-        if tappedIndex >= 0 && tappedIndex < sortedSteps.count {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-                selectedDay = sortedSteps[tappedIndex]
-                showingDayDetail = true
-            }
-        }
     }
 }
 
@@ -322,38 +366,6 @@ struct StepHistoryStatsView: View {
                 }
             }
             
-            // Second row: Notification stats
-            HStack(spacing: 20) {
-                VStack {
-                    Text("\(totalNotifications)")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(totalNotifications > 0 ? .orange : .green)
-                    Text("Total Reminders")
-                        .font(.caption)
-                        .foregroundColor(.stepperCream.opacity(0.7))
-                }
-                
-                VStack {
-                    Text(String(format: "%.1f", averageNotifications))
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(averageNotifications > 1 ? .orange : .stepperLightTeal)
-                    Text("Avg per Day")
-                        .font(.caption)
-                        .foregroundColor(.stepperCream.opacity(0.7))
-                }
-                
-                VStack {
-                    Text("\(sortedSteps.filter { $0.inactivityNotifications == 0 }.count)")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.green)
-                    Text("Active Days")
-                        .font(.caption)
-                        .foregroundColor(.stepperCream.opacity(0.7))
-                }
-            }
             
             // Summary message
             if totalNotifications == 0 {
