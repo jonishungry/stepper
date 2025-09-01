@@ -485,6 +485,270 @@ struct ChartModeToggle: View {
     }
 }
 
+struct DayHeaderView: View {
+    let dayData: DayActivityData
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("\(dayData.dayName) • \(dayData.fullDate)")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.stepperCream)
+                    
+                    if dayData.isToday {
+                        Text("Today")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .foregroundColor(.stepperDarkBlue)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Color.stepperYellow)
+                            .cornerRadius(8)
+                    }
+                    
+                    Spacer()
+                }
+                
+                HStack(spacing: 20) {
+                    Text("\(dayData.totalSteps) steps")
+                        .font(.caption)
+                        .foregroundColor(.stepperLightTeal)
+                        .fontWeight(.medium)
+                    
+                    if dayData.totalNotifications > 0 {
+                        Text("\(dayData.totalNotifications) reminders")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                            .fontWeight(.medium)
+                    } else {
+                        Text("No reminders")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                            .fontWeight(.medium)
+                    }
+                    
+                    // Goal status
+                    if dayData.totalSteps >= dayData.targetSteps {
+                        Text("Goal met! 🎯")
+                            .font(.caption)
+                            .foregroundColor(.stepperYellow)
+                            .fontWeight(.medium)
+                    }
+                }
+            }
+        }
+    }
+    
+}
+struct HourDetailView: View {
+    let hourData: HourlyStepData
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Text("📊 \(hourData.hourString)")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.stepperYellow)
+
+            HStack(spacing: 20) {
+                HStack {
+                    Image(systemName: "figure.walk")
+                        .foregroundColor(.stepperLightTeal)
+                    Text("\(hourData.steps) steps")
+                        .font(.caption)
+                        .foregroundColor(.stepperCream)
+                }
+
+                if hourData.notifications > 0 {
+                    HStack {
+                        Image(systemName: "bell.fill")
+                            .foregroundColor(.orange)
+                        Text("\(hourData.notifications) reminder\(hourData.notifications == 1 ? "" : "s")")
+                            .font(.caption)
+                            .foregroundColor(.stepperCream)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.stepperDarkBlue.opacity(0.7))
+        )
+    }
+}
+
+//struct HourChartMarksView: View {
+//    let hourData: HourlyStepData
+//    let displayMode: ChartDisplayMode
+//    let maxValue: Double
+//    let sleepHours: [Int]
+//    @Binding var selectedHour: Int?
+//    
+//    // You would need to move `formatHour`, `getBarColor`, and `getBarOpacity` into this view
+//    // or a helper file.
+//    private func getBarColor(for hourData: HourlyStepData) -> Color {
+//        if selectedHour == hourData.hour {
+//            return .white // Highlighted
+//        }
+//        
+//        switch displayMode {
+//        case .steps:
+//            if sleepHours.contains(hourData.hour) {
+//                return .stepperCream.opacity(0.4) // Muted for sleep hours
+//            }
+//            return .stepperLightTeal
+//        case .notifications:
+//            return .orange
+//        }
+//    }
+//
+//    private func getBarOpacity(for hourData: HourlyStepData) -> Double {
+//        if selectedHour == hourData.hour {
+//            return 1.0
+//        }
+//        if selectedHour != nil {
+//            return 0.4 // Dim non-selected bars
+//        }
+//        return sleepHours.contains(hourData.hour) ? 0.6 : 0.8
+//    }
+//    
+//    var body: some View {
+//        // This is the content that was causing the compiler to fail
+//        BarMark(
+//            x: .value("Hour", hourData.hour),
+//            y: .value(displayMode.rawValue, displayMode == .steps ? hourData.steps : hourData.notifications)
+//        )
+//        .foregroundStyle(getBarColor(for: hourData))
+//        .opacity(getBarOpacity(for: hourData))
+//        .cornerRadius(3)
+//        
+//        if sleepHours.contains(hourData.hour) {
+//            RectangleMark(
+//                x: .value("Hour", hourData.hour),
+//                yStart: .value("Start", 0),
+//                yEnd: .value("End", maxValue)
+//            )
+//            .zIndex(-1)
+//        }
+//    }
+//}
+
+struct ActivityChartView: View {
+    let chartData: [HourlyStepData]
+    let displayMode: ChartDisplayMode
+    let maxValue: Int
+    let sleepHours: [Int]
+    @Binding var selectedHour: Int?
+    
+    var body: some View {
+        Chart(chartData) { data in
+            BarMark(
+                x: .value("Hour", data.hour),
+                y: .value(displayMode.rawValue, displayMode == .steps ? data.steps : data.notifications)
+            )
+            .foregroundStyle(getBarColor(for: data))
+            .opacity(getBarOpacity(for: data))
+            .cornerRadius(3)
+            
+        }
+        .chartXScale(domain: 0...23)
+        .chartYScale(domain: 0...maxValue)
+        .chartXAxis {self.buildAxisMarks()}
+        .chartYAxis {self.buildYAxisMarks()}
+        .frame(height: 140)
+        .padding()
+        .background()
+        .onTapGesture { location in
+            let chartWidth = UIScreen.main.bounds.width - 80
+            let hourWidth = chartWidth / 24
+            let tappedHour = Int(location.x / hourWidth)
+            
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedHour = tappedHour == selectedHour ? nil : tappedHour
+            }
+        }
+    }
+
+    @AxisContentBuilder
+    private func buildAxisMarks()  -> some AxisContent{
+        AxisMarks(values: [0, 6, 12, 18, 23]) { value in
+            if let hour = value.as(Int.self) {
+                AxisGridLine()
+                    .foregroundStyle(Color.stepperCream.opacity(0.2))
+                AxisValueLabel {
+                    Text(formatHour(hour))
+                        .font(.caption2)
+                        .foregroundColor(Color.stepperCream.opacity(0.7))
+                }
+            }
+        }
+    }
+    
+    @AxisContentBuilder
+    private func buildYAxisMarks() -> some AxisContent{
+        AxisMarks(position: .leading) { value in
+            AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                .foregroundStyle(Color.stepperCream.opacity(0.15))
+            AxisValueLabel {
+                if let intValue = value.as(Int.self) {
+                    Text("\(intValue)")
+                        .font(.caption2)
+                        .foregroundColor(Color.stepperCream.opacity(0.6))
+                }
+            }
+        }
+    }
+    
+    private func getBarColor(for hourData: HourlyStepData) -> Color {
+            if selectedHour == hourData.hour {
+                return .white // Highlighted
+            }
+    
+            switch displayMode {
+            case .steps:
+                if sleepHours.contains(hourData.hour) {
+                    return .stepperCream.opacity(0.4) // Muted for sleep hours
+                }
+                return .stepperLightTeal
+            case .notifications:
+                return .orange
+            }
+        }
+    
+        private func getBarOpacity(for hourData: HourlyStepData) -> Double {
+            if selectedHour == hourData.hour {
+                return 1.0
+            }
+            if selectedHour != nil {
+                return 0.4 // Dim non-selected bars
+            }
+            return sleepHours.contains(hourData.hour) ? 0.6 : 0.8
+        }
+        
+    private func formatHour(_ hour: Int) -> String {
+        if hour == 0 { return "12 AM" }
+        if hour < 12 { return "\(hour) AM" }
+        if hour == 12 { return "12 PM" }
+        return "\(hour - 12) PM"
+    }
+    
+    
+    
+    
+}
+struct BackgroundView: View {
+    let displayMode: ChartDisplayMode
+    var body: some View {RoundedRectangle(cornerRadius: 12)
+            .fill(Color.stepperCream.opacity(0.05))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(displayMode.color.opacity(0.3), lineWidth: 1)
+            )
+    }
+}
 struct DailyActivityChart: View {
     let dayData: DayActivityData
     let displayMode: ChartDisplayMode
@@ -505,236 +769,28 @@ struct DailyActivityChart: View {
         }
     }
     
-    private var sleepHours: Set<Int> {
-        return Set([23, 0, 1, 2, 3, 4, 5]) // 11 PM to 5 AM
+    private var sleepHours: [Int] {
+        return [23, 0, 1, 2, 3, 4, 5] // 11 PM to 5 AM
     }
     
     var body: some View {
         VStack(spacing: 15) {
             // Day Header
-            HStack {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("\(dayData.dayName) • \(dayData.fullDate)")
-                            .font(.headline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.stepperCream)
-                        
-                        if dayData.isToday {
-                            Text("Today")
-                                .font(.caption)
-                                .fontWeight(.bold)
-                                .foregroundColor(.stepperDarkBlue)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 2)
-                                .background(Color.stepperYellow)
-                                .cornerRadius(8)
-                        }
-                        
-                        Spacer()
-                    }
-                    
-                    HStack(spacing: 20) {
-                        Text("\(dayData.totalSteps) steps")
-                            .font(.caption)
-                            .foregroundColor(.stepperLightTeal)
-                            .fontWeight(.medium)
-                        
-                        if dayData.totalNotifications > 0 {
-                            Text("\(dayData.totalNotifications) reminders")
-                                .font(.caption)
-                                .foregroundColor(.orange)
-                                .fontWeight(.medium)
-                        } else {
-                            Text("No reminders")
-                                .font(.caption)
-                                .foregroundColor(.green)
-                                .fontWeight(.medium)
-                        }
-                        
-                        // Goal status
-                        if dayData.totalSteps >= dayData.targetSteps {
-                            Text("Goal met! 🎯")
-                                .font(.caption)
-                                .foregroundColor(.stepperYellow)
-                                .fontWeight(.medium)
-                        }
-                    }
-                }
-            }
+            DayHeaderView(dayData: dayData) // Use the new subview
             
             // Selected Hour Detail
             if let selectedHour = selectedHour,
                let hourData = chartData.first(where: { $0.hour == selectedHour }) {
-                VStack(spacing: 8) {
-                    Text("📊 \(hourData.hourString)")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.stepperYellow)
-                    
-                    HStack(spacing: 20) {
-                        HStack {
-                            Image(systemName: "figure.walk")
-                                .foregroundColor(.stepperLightTeal)
-                            Text("\(hourData.steps) steps")
-                                .font(.caption)
-                                .foregroundColor(.stepperCream)
-                        }
-                        
-                        if hourData.notifications > 0 {
-                            HStack {
-                                Image(systemName: "bell.fill")
-                                    .foregroundColor(.orange)
-                                Text("\(hourData.notifications) reminder\(hourData.notifications == 1 ? "" : "s")")
-                                    .font(.caption)
-                                    .foregroundColor(.stepperCream)
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.stepperDarkBlue.opacity(0.7))
-                )
+                HourDetailView(hourData: hourData) // Use the new subview
             }
+            
             
             // Chart
-            Chart(chartData) { hourData in
-                BarMark(
-                    x: .value("Hour", hourData.hour),
-                    y: .value(displayMode.rawValue, displayMode == .steps ? hourData.steps : hourData.notifications)
-                )
-                .foregroundStyle(getBarColor(for: hourData))
-                .opacity(getBarOpacity(for: hourData))
-                .cornerRadius(3)
-                
-                // Add sleep hour background
-                if sleepHours.contains(hourData.hour) {
-                    RectangleMark(
-                        x: .value("Hour", hourData.hour),
-                        yStart: .value("Start", 0),
-                        yEnd: .value("End", maxValue)
-                    )
-                    .foregroundStyle(.stepperCream.opacity(0.05))
-                    .zIndex(-1)
-                }
-            }
-            .chartXScale(domain: 0...23)
-            .chartYScale(domain: 0...maxValue)
-            .chartXAxis {
-                AxisMarks(values: [0, 6, 12, 18, 23]) { value in
-                    if let hour = value.as(Int.self) {
-                        AxisGridLine()
-                            .foregroundStyle(.stepperCream.opacity(0.2))
-                        AxisValueLabel {
-                            Text(formatHour(hour))
-                                .font(.caption2)
-                                .foregroundColor(.stepperCream.opacity(0.7))
-                        }
-                    }
-                }
-            }
-            .chartYAxis {
-                AxisMarks(position: .leading) { value in
-                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                        .foregroundStyle(.stepperCream.opacity(0.15))
-                    AxisValueLabel {
-                        if let intValue = value.as(Int.self) {
-                            Text("\(intValue)")
-                                .font(.caption2)
-                                .foregroundColor(.stepperCream.opacity(0.6))
-                        }
-                    }
-                }
-            }
-            .frame(height: 140)
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.stepperCream.opacity(0.05))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(displayMode.color.opacity(0.3), lineWidth: 1)
-                    )
-            )
-            .onTapGesture { location in
-                // Calculate which hour was tapped based on tap location
-                let chartWidth = UIScreen.main.bounds.width - 80 // Approximate chart width
-                let hourWidth = chartWidth / 24
-                let tappedHour = Int(location.x / hourWidth)
-                
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    selectedHour = tappedHour == selectedHour ? nil : tappedHour
-                }
-            }
+            ActivityChartView(chartData: chartData, displayMode: displayMode, maxValue: maxValue, sleepHours: sleepHours, selectedHour: $selectedHour) // Use the new subview
             
-            // Chart legend and tips
-            VStack(spacing: 8) {
-                HStack {
-                    // Sleep hours indicator
-                    HStack(spacing: 4) {
-                        Rectangle()
-                            .fill(Color.stepperCream.opacity(0.2))
-                            .frame(width: 12, height: 8)
-                        Text("Sleep hours (11 PM - 5 AM)")
-                            .font(.caption2)
-                            .foregroundColor(.stepperCream.opacity(0.6))
-                    }
-                    
-                    Spacer()
-                    
-                    Text("Tap chart for hourly details")
-                        .font(.caption2)
-                        .foregroundColor(.stepperCream.opacity(0.5))
-                        .italic()
-                }
-            }
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.stepperCream.opacity(0.1))
-        )
-        .onTapGesture {
-            // Reset selection when tapping outside chart
-            withAnimation(.easeOut(duration: 0.2)) {
-                selectedHour = nil
-            }
-        }
-    }
-    
-    private func getBarColor(for hourData: HourlyStepData) -> Color {
-        if selectedHour == hourData.hour {
-            return .white // Highlighted
-        }
-        
-        switch displayMode {
-        case .steps:
-            if sleepHours.contains(hourData.hour) {
-                return .stepperCream.opacity(0.4) // Muted for sleep hours
-            }
-            return .stepperLightTeal
-        case .notifications:
-            return .orange
-        }
-    }
-    
-    private func getBarOpacity(for hourData: HourlyStepData) -> Double {
-        if selectedHour == hourData.hour {
-            return 1.0
-        }
-        if selectedHour != nil {
-            return 0.4 // Dim non-selected bars
-        }
-        return sleepHours.contains(hourData.hour) ? 0.6 : 0.8
-    }
-    
-    private func formatHour(_ hour: Int) -> String {
-        if hour == 0 { return "12 AM" }
-        if hour < 12 { return "\(hour) AM" }
-        if hour == 12 { return "12 PM" }
-        return "\(hour - 12) PM"
     }
 }
+    
+
+
