@@ -52,10 +52,11 @@ struct StepData: Identifiable {
     }
 }
 
-// MARK: - Updated MenuItem with Notifications
+// MARK: - Updated MenuItem with Inactivity
 enum MenuItem: String, CaseIterable {
     case today = "Today's Steps"
     case history = "Step History"
+    case inactivity = "Activity Patterns"
     case notifications = "Notifications"
     
     var icon: String {
@@ -64,6 +65,8 @@ enum MenuItem: String, CaseIterable {
             return "figure.run"
         case .history:
             return "chart.bar.fill"
+        case .inactivity:
+            return "chart.line.uptrend.xyaxis"
         case .notifications:
             return "bell.fill"
         }

@@ -24,6 +24,8 @@ struct MainView: View {
                         TodayStepsView(healthManager: healthManager)
                     case .history:
                         StepHistoryView(healthManager: healthManager)
+                    case .inactivity:
+                        InactivityHistoryView(healthManager: healthManager)
                     case .notifications:
                         NotificationSettingsView(notificationManager: notificationManager)
                     }
@@ -72,6 +74,9 @@ struct MainView: View {
             
             // Connect health manager to notification manager
             healthManager.setNotificationManager(notificationManager)
+            
+            // Migrate existing notification data to new hourly format (one-time operation)
+            notificationManager.migrateExistingNotificationData()
             
             // Only fetch data if authorized - don't auto-request permission
             if healthManager.authorizationStatus == "Authorized" {

@@ -711,6 +711,146 @@ class HealthManager: ObservableObject {
         
         healthStore.execute(query)
     }
+    
+    // MARK: - Fetch Hourly Step Data for Activity Patterns
+    func fetchHourlyStepData(for date: Date, completion: @escaping ([HourlyStepData]) -> Void) {
+        guard authorizationStatus == "Authorized" else {
+            print("❌ Not authorized for HealthKit - hourly data")
+            completion([])
+            return
+        }
+        
+        let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
+        let calendar = Calendar.current
+        
+        // Get the full day from start to end
+        let startOfDay = calendar.startOfDay(for: date)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        
+        print("📊 Fetching hourly data for \(startOfDay)")
+        
+        let predicate = HKQuery.predicateForSamples(
+            withStart: startOfDay,
+            end: endOfDay,
+            options: .strictStartDate
+        )
+        
+        // Create hourly intervals
+        let query = HKStatisticsCollectionQuery(
+            quantityType: stepType,
+            quantitySamplePredicate: predicate,
+            options: .cumulativeSum,
+            anchorDate: startOfDay,
+            intervalComponents: DateComponents(hour: 1)
+        )
+        
+        query.initialResultsHandler = { [weak self] _, results, error in
+            if let error = error {
+                print("❌ Error fetching hourly data: \(error.localizedDescription)")
+                completion([])
+                return
+            }
+            
+            guard let results = results else {
+                print("❌ No hourly results")
+                completion([])
+                return
+            }
+            
+            var hourlyData: [HourlyStepData] = []
+            
+            // Create data for each hour (0-23)
+            for hour in 0..<24 {
+                let hourStart = calendar.date(byAdding: .hour, value: hour, to: startOfDay)!
+                let hourEnd = calendar.date(byAdding: .hour, value: 1, to: hourStart)!
+                
+                var hourSteps = 0
+                
+                // Get statistics for this specific hour
+                results.enumerateStatistics(from: hourStart, to: hourEnd) { statistic, _ in
+                    if let sum = statistic.sumQuantity() {
+                        hourSteps = Int(sum.doubleValue(for: HKUnit.count()))
+                    }
+                }
+                
+                // Get notification count for this hour from NotificationManager
+                let notifications = self?.getHourlyNotificationCount(for: date, hour: hour) ?? 0
+                
+                hourlyData.append(HourlyStepData(
+                    hour: hour,
+                    steps: hourSteps,
+                    notifications: notifications
+                ))
+            }
+            
+            print("✅ Fetched hourly data for \(calendar.dateComponents([.month, .day], from: date)): \(hourlyData.map(\.steps).reduce(0, +)) total steps")
+            completion(hourlyData)
+        }
+        
+        healthStore.execute(query)
+    }
+    
+    // MARK: - Fetch 30-Day Hourly Activity Data
+    func fetch30DayActivityData(completion: @escaping ([DayActivityData]) -> Void) {
+        guard authorizationStatus == "Authorized" else {
+            completion([])
+            return
+        }
+        
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let dispatchGroup = DispatchGroup()
+        
+        var activityDataArray: [DayActivityData] = []
+        let queue = DispatchQueue(label: "hourly-data-fetch", attributes: .concurrent)
+        
+        print("🔍 Starting 30-day hourly data fetch...")
+        
+        // Fetch data for each of the last 30 days
+        for dayOffset in 0..<30 {
+            guard let dayDate = calendar.date(byAdding: .day, value: -29 + dayOffset, to: today) else { continue }
+            
+            dispatchGroup.enter()
+            
+            queue.async { [weak self] in
+                self?.fetchHourlyStepData(for: dayDate) { hourlyData in
+                    let totalSteps = hourlyData.map(\.steps).reduce(0, +)
+                    let totalNotifications = hourlyData.map(\.notifications).reduce(0, +)
+                    let targetSteps = self?.targetManager.getTargetForDate(dayDate) ?? 10000
+                    
+                    let dayActivity = DayActivityData(
+                        date: dayDate,
+                        hourlyData: hourlyData,
+                        totalSteps: totalSteps,
+                        totalNotifications: totalNotifications,
+                        targetSteps: targetSteps
+                    )
+                    
+                    DispatchQueue.main.async {
+                        activityDataArray.append(dayActivity)
+                        dispatchGroup.leave()
+                    }
+                }
+            }
+        }
+        
+        // Wait for all fetches to complete
+        dispatchGroup.notify(queue: .main) {
+            let sortedData = activityDataArray.sorted { $0.date > $1.date }
+            print("✅ Completed 30-day hourly data fetch: \(sortedData.count) days")
+            completion(sortedData)
+        }
+    }
+    
+    // MARK: - Get notification count for specific hour
+    private func getHourlyNotificationCount(for date: Date, hour: Int) -> Int {
+        guard let notificationManager = notificationManager else { return 0 }
+        
+        // This would need to be implemented in NotificationManager
+        // For now, return 0 - in real implementation, this would check
+        // notification timestamps and count notifications for this specific hour
+        return notificationManager.getHourlyNotificationCount(for: date, hour: hour)
+    }
 }
 
 

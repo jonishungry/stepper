@@ -35,6 +35,28 @@ struct ActiveTimeRange: Identifiable, Codable {
     }
 }
 
+// MARK: - Notification Timestamp Model
+struct NotificationTimestamp: Codable {
+    let date: Date
+    let type: NotificationType
+    
+    enum NotificationType: String, Codable {
+        case inactivity = "inactivity"
+        case bedtime = "bedtime"
+        case repeated = "repeated_inactivity"
+    }
+    
+    var hour: Int {
+        Calendar.current.component(.hour, from: date)
+    }
+    
+    var dayKey: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+}
+
 struct NotificationSettings: Codable {
     // Bedtime notification
     var bedtimeNotificationEnabled: Bool = false
@@ -65,7 +87,7 @@ struct NotificationSettings: Codable {
     }
 }
 
-// MARK: - Notification Manager with HealthKit Background Delivery
+// MARK: - Enhanced Notification Manager with Hourly Tracking
 class NotificationManager: ObservableObject {
     // MARK: - Published Properties
     @Published var settings = NotificationSettings()
@@ -83,24 +105,340 @@ class NotificationManager: ObservableObject {
     private let dailyNotificationCountKey = "DailyInactivityNotificationCounts"
     private let lastCheckTimeKey = "LastInactivityCheck"
     
+    // NEW: Hourly tracking keys
+    private let notificationTimestampsKey = "NotificationTimestamps"
+    private let hourlyNotificationCountsKey = "HourlyNotificationCounts"
+    
     // State Variables
     private var lastStepCount: Int = 0
     private var lastActivityTime: Date = Date()
     private var lastNotificationTime: Date = Date.distantPast
     private var inactivityTimer: Timer?
     
+    // NEW: In-memory cache for performance
+    private var notificationTimestamps: [NotificationTimestamp] = []
+    private var hourlyCountsCache: [String: [Int: Int]] = [:] // [dateKey: [hour: count]]
+    
     // MARK: - Initializer
     init() {
         loadSettings()
         loadLastActivity()
+        loadNotificationTimestamps()
         checkNotificationPermission()
         setupAppLifecycleNotifications()
         setupHealthKitBackgroundDelivery()
+        cleanupOldNotificationData()
     }
     
     deinit {
         inactivityTimer?.invalidate()
     }
+    
+    // MARK: - Notification Timestamp Management
+    
+    /// Load notification timestamps from storage and build cache
+    private func loadNotificationTimestamps() {
+        if let data = userDefaults.data(forKey: notificationTimestampsKey),
+           let timestamps = try? JSONDecoder().decode([NotificationTimestamp].self, from: data) {
+            notificationTimestamps = timestamps
+            buildHourlyCountsCache()
+            print("📊 Loaded \(timestamps.count) notification timestamps")
+        } else {
+            notificationTimestamps = []
+            hourlyCountsCache = [:]
+        }
+    }
+    
+    /// Save notification timestamps to persistent storage
+    private func saveNotificationTimestamps() {
+        if let encoded = try? JSONEncoder().encode(notificationTimestamps) {
+            userDefaults.set(encoded, forKey: notificationTimestampsKey)
+            buildHourlyCountsCache() // Rebuild cache after saving
+            print("💾 Saved \(notificationTimestamps.count) notification timestamps")
+        }
+    }
+    
+    /// Build in-memory cache for fast hourly lookups
+    private func buildHourlyCountsCache() {
+        hourlyCountsCache.removeAll()
+        
+        for timestamp in notificationTimestamps {
+            let dateKey = timestamp.dayKey
+            let hour = timestamp.hour
+            
+            if hourlyCountsCache[dateKey] == nil {
+                hourlyCountsCache[dateKey] = [:]
+            }
+            
+            hourlyCountsCache[dateKey]![hour, default: 0] += 1
+        }
+        
+        print("🔄 Built hourly cache for \(hourlyCountsCache.keys.count) days")
+    }
+    
+    /// Record a new notification with precise timestamp
+    private func recordNotificationTimestamp(_ type: NotificationTimestamp.NotificationType) {
+        let timestamp = NotificationTimestamp(date: Date(), type: type)
+        notificationTimestamps.append(timestamp)
+        
+        // Update cache immediately for real-time accuracy
+        let dateKey = timestamp.dayKey
+        let hour = timestamp.hour
+        
+        if hourlyCountsCache[dateKey] == nil {
+            hourlyCountsCache[dateKey] = [:]
+        }
+        hourlyCountsCache[dateKey]![hour, default: 0] += 1
+        
+        saveNotificationTimestamps()
+        
+        print("📝 Recorded \(type.rawValue) notification at \(timestamp.date) (hour \(hour))")
+    }
+    
+    /// Clean up old notification data (keep last 35 days)
+    private func cleanupOldNotificationData() {
+        let calendar = Calendar.current
+        let cutoffDate = calendar.date(byAdding: .day, value: -35, to: Date()) ?? Date()
+        
+        let initialCount = notificationTimestamps.count
+        notificationTimestamps = notificationTimestamps.filter { $0.date >= cutoffDate }
+        
+        if notificationTimestamps.count != initialCount {
+            saveNotificationTimestamps()
+            print("🧹 Cleaned up \(initialCount - notificationTimestamps.count) old notification timestamps")
+        }
+    }
+    
+    // MARK: - Public Hourly Tracking Methods
+    
+    /// Get notification count for a specific date and hour
+    func getHourlyNotificationCount(for date: Date, hour: Int) -> Int {
+        let calendar = Calendar.current
+        let dateKey = dateToString(calendar.startOfDay(for: date))
+        
+        return hourlyCountsCache[dateKey]?[hour] ?? 0
+    }
+    
+    /// Get all hourly notification counts for a specific date
+    func getDailyHourlyNotificationCounts(for date: Date) -> [Int: Int] {
+        let calendar = Calendar.current
+        let dateKey = dateToString(calendar.startOfDay(for: date))
+        
+        return hourlyCountsCache[dateKey] ?? [:]
+    }
+    
+    /// Get notification timestamps for a specific date (for detailed analysis)
+    func getNotificationTimestamps(for date: Date) -> [NotificationTimestamp] {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        
+        return notificationTimestamps.filter { timestamp in
+            timestamp.date >= startOfDay && timestamp.date < endOfDay
+        }
+    }
+    
+    /// Get total notification count for a specific date (maintains backward compatibility)
+    func getInactivityNotificationCount(for date: Date) -> Int {
+        let hourlyData = getDailyHourlyNotificationCounts(for: date)
+        return hourlyData.values.reduce(0, +)
+    }
+    
+    // MARK: - Enhanced Notification Sending Methods
+    
+    private func sendInactivityNotification(actualInactivityTime: TimeInterval) {
+        let content = UNMutableNotificationContent()
+        content.title = "Time to Move! 👟"
+        content.body = "You haven't moved in \(Int(actualInactivityTime / 60)) minutes. Let's get those steps in!"
+        content.sound = .default
+        content.badge = NSNumber(value: UIApplication.shared.applicationIconBadgeNumber + 1)
+        content.userInfo = [
+            "type": "inactivity",
+            "timestamp": Date().timeIntervalSince1970,
+            "inactiveMinutes": Int(actualInactivityTime / 60)
+        ]
+        
+        let request = UNNotificationRequest(
+            identifier: "inactivity-alert-\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil
+        )
+        
+        UNUserNotificationCenter.current().add(request) { [weak self] error in
+            if let error = error {
+                print("❌ Failed to send inactivity notification: \(error)")
+            } else {
+                print("✅ Sent inactivity notification (inactive for \(Int(actualInactivityTime / 60)) minutes)")
+                
+                // Record the notification timestamp
+                self?.recordNotificationTimestamp(.inactivity)
+                
+                self?.updateAppBadge(increment: true)
+                self?.lastNotificationTime = Date()
+                self?.incrementDailyNotificationCount()
+                self?.saveLastActivity()
+            }
+        }
+    }
+    
+    private func scheduleRepeatingInactivityNotifications() {
+        guard settings.inactivityNotificationEnabled else { return }
+        
+        print("📅 Scheduling repeating inactivity notifications every \(Int(settings.inactivityDuration / 60)) minutes")
+        
+        for i in 1...12 {
+            let delay = settings.inactivityDuration * Double(i)
+            
+            let content = UNMutableNotificationContent()
+            content.title = "Still Inactive! 👟"
+            content.body = "You haven't moved in \(Int((settings.inactivityDuration * Double(i)) / 60)) minutes. Time to get those steps in!"
+            content.sound = .default
+            content.badge = NSNumber(value: UIApplication.shared.applicationIconBadgeNumber + i)
+            content.userInfo = [
+                "type": "repeated_inactivity",
+                "interval": i,
+                "scheduledFor": Date().addingTimeInterval(delay),
+                "timestamp": Date().addingTimeInterval(delay).timeIntervalSince1970
+            ]
+            
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: delay, repeats: false)
+            let request = UNNotificationRequest(
+                identifier: "inactivity-repeat-\(i)-\(Date().timeIntervalSince1970)",
+                content: content,
+                trigger: trigger
+            )
+            
+            UNUserNotificationCenter.current().add(request) { [weak self] error in
+                if let error = error {
+                    print("❌ Failed to schedule repeat inactivity notification \(i): \(error)")
+                } else if i == 1 {
+                    print("✅ Scheduled \(12) repeating inactivity notifications")
+                    
+                    // Pre-record the scheduled notifications (they'll be sent later)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay + 1) {
+                        self?.recordNotificationTimestamp(.repeated)
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Bedtime Notifications with Tracking
+    private func scheduleBedtimeNotification(currentSteps: Int, targetSteps: Int) {
+        guard currentSteps < targetSteps else {
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["bedtime-reminder"])
+            return
+        }
+        
+        guard let bedtime = getBedtime() else {
+            print("⚠️ No bedtime found")
+            return
+        }
+        
+        let stepsRemaining = targetSteps - currentSteps
+        let notificationTime = Calendar.current.date(byAdding: .minute,
+                                                   value: -settings.bedtimeOffsetMinutes,
+                                                   to: bedtime)!
+        
+        guard notificationTime > Date() else {
+            print("⚠️ Bedtime notification time has passed")
+            return
+        }
+        
+        let content = UNMutableNotificationContent()
+        content.title = "Stepper Reminder 🏃‍♀️"
+        content.body = "You need \(stepsRemaining) more steps before bedtime in \(settings.bedtimeHours)h \(settings.bedtimeMinutes)m!"
+        content.sound = .default
+        content.badge = NSNumber(value: UIApplication.shared.applicationIconBadgeNumber + 1)
+        content.userInfo = [
+            "type": "bedtime",
+            "timestamp": notificationTime.timeIntervalSince1970,
+            "stepsRemaining": stepsRemaining
+        ]
+        
+        let triggerComponents = Calendar.current.dateComponents([.hour, .minute], from: notificationTime)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: triggerComponents, repeats: false)
+        
+        let request = UNNotificationRequest(identifier: "bedtime-reminder", content: content, trigger: trigger)
+        
+        UNUserNotificationCenter.current().add(request) { [weak self] error in
+            if let error = error {
+                print("❌ Failed to schedule bedtime notification: \(error)")
+            } else {
+                let formatter = DateFormatter()
+                formatter.timeStyle = .short
+                print("✅ Bedtime notification scheduled for \(formatter.string(from: notificationTime))")
+                
+                // Schedule recording of the bedtime notification when it fires
+                let fireDelay = notificationTime.timeIntervalSince(Date())
+                if fireDelay > 0 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + fireDelay + 1) {
+                        self?.recordNotificationTimestamp(.bedtime)
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Analytics and Insights Methods
+    
+    /// Get the most active notification hour across all days
+    func getMostNotificationHour() -> Int? {
+        var hourCounts: [Int: Int] = [:]
+        
+        for dayCounts in hourlyCountsCache.values {
+            for (hour, count) in dayCounts {
+                hourCounts[hour, default: 0] += count
+            }
+        }
+        
+        return hourCounts.max(by: { $0.value < $1.value })?.key
+    }
+    
+    /// Get notification pattern for specific hours across days
+    func getNotificationPattern(for hour: Int, days: Int = 30) -> [Date: Int] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        var pattern: [Date: Int] = [:]
+        
+        for dayOffset in 0..<days {
+            guard let date = calendar.date(byAdding: .day, value: -dayOffset, to: today) else { continue }
+            let count = getHourlyNotificationCount(for: date, hour: hour)
+            if count > 0 {
+                pattern[date] = count
+            }
+        }
+        
+        return pattern
+    }
+    
+    /// Get average notifications per hour across all tracked days
+    func getAverageHourlyNotifications() -> [Int: Double] {
+        var hourTotals: [Int: Int] = [:]
+        var hourDays: [Int: Int] = [:]
+        
+        for dayCounts in hourlyCountsCache.values {
+            for hour in 0..<24 {
+                let count = dayCounts[hour] ?? 0
+                hourTotals[hour, default: 0] += count
+                if count > 0 {
+                    hourDays[hour, default: 0] += 1
+                }
+            }
+        }
+        
+        var averages: [Int: Double] = [:]
+        for hour in 0..<24 {
+            let total = hourTotals[hour] ?? 0
+            let days = max(hourDays[hour] ?? 0, 1)
+            averages[hour] = Double(total) / Double(days)
+        }
+        
+        return averages
+    }
+    
+    // MARK: - All previous methods remain the same...
+    // (Including HealthKit background delivery, app lifecycle, permission management, etc.)
     
     // MARK: - HealthKit Background Delivery
     private func setupHealthKitBackgroundDelivery() {
@@ -301,42 +639,6 @@ class NotificationManager: ObservableObject {
         }
     }
     
-    private func scheduleRepeatingInactivityNotifications() {
-        guard settings.inactivityNotificationEnabled else { return }
-        
-        print("📅 Scheduling repeating inactivity notifications every \(Int(settings.inactivityDuration / 60)) minutes")
-        
-        for i in 1...12 {
-            let delay = settings.inactivityDuration * Double(i)
-            
-            let content = UNMutableNotificationContent()
-            content.title = "Still Inactive! 👟"
-            content.body = "You haven't moved in \(Int((settings.inactivityDuration * Double(i)) / 60)) minutes. Time to get those steps in!"
-            content.sound = .default
-            content.badge = NSNumber(value: UIApplication.shared.applicationIconBadgeNumber + i)
-            content.userInfo = [
-                "type": "repeated_inactivity",
-                "interval": i,
-                "scheduledFor": Date().addingTimeInterval(delay)
-            ]
-            
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: delay, repeats: false)
-            let request = UNNotificationRequest(
-                identifier: "inactivity-repeat-\(i)-\(Date().timeIntervalSince1970)",
-                content: content,
-                trigger: trigger
-            )
-            
-            UNUserNotificationCenter.current().add(request) { error in
-                if let error = error {
-                    print("❌ Failed to schedule repeat inactivity notification \(i): \(error)")
-                } else if i == 1 {
-                    print("✅ Scheduled \(12) repeating inactivity notifications")
-                }
-            }
-        }
-    }
-    
     private func scheduleInactivityNotification(delay: TimeInterval) {
         let content = UNMutableNotificationContent()
         content.title = "Time to Move! 👟"
@@ -396,33 +698,6 @@ class NotificationManager: ObservableObject {
         sendInactivityNotification(actualInactivityTime: timeSinceLastActivity)
     }
     
-    private func sendInactivityNotification(actualInactivityTime: TimeInterval) {
-        let content = UNMutableNotificationContent()
-        content.title = "Time to Move! 👟"
-        content.body = "You haven't moved in \(Int(actualInactivityTime / 60)) minutes. Let's get those steps in!"
-        content.sound = .default
-        content.badge = NSNumber(value: UIApplication.shared.applicationIconBadgeNumber + 1)
-        
-        let request = UNNotificationRequest(
-            identifier: "inactivity-alert-\(Date().timeIntervalSince1970)",
-            content: content,
-            trigger: nil
-        )
-        
-        UNUserNotificationCenter.current().add(request) { [weak self] error in
-            if let error = error {
-                print("❌ Failed to send inactivity notification: \(error)")
-            } else {
-                print("✅ Sent inactivity notification (inactive for \(Int(actualInactivityTime / 60)) minutes)")
-                
-                self?.updateAppBadge(increment: true)
-                self?.lastNotificationTime = Date()
-                self?.incrementDailyNotificationCount()
-                self?.saveLastActivity()
-            }
-        }
-    }
-    
     private func cancelPendingInactivityNotifications() {
         UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
             let inactivityIdentifiers = requests
@@ -465,7 +740,7 @@ class NotificationManager: ObservableObject {
         sendInactivityNotification(actualInactivityTime: timeSinceLastActivity)
     }
     
-    // MARK: - Daily Notification Tracking
+    // MARK: - Daily Notification Tracking (Legacy - maintained for compatibility)
     private func incrementDailyNotificationCount() {
         let today = Calendar.current.startOfDay(for: Date())
         var counts = getDailyNotificationCounts()
@@ -488,13 +763,6 @@ class NotificationManager: ObservableObject {
         if let encoded = try? JSONEncoder().encode(counts) {
             userDefaults.set(encoded, forKey: dailyNotificationCountKey)
         }
-    }
-    
-    func getInactivityNotificationCount(for date: Date) -> Int {
-        let startOfDay = Calendar.current.startOfDay(for: date)
-        let dateKey = dateToString(startOfDay)
-        let counts = getDailyNotificationCounts()
-        return counts[dateKey] ?? 0
     }
     
     func getTodaysInactivityNotificationCount() -> Int {
@@ -609,50 +877,6 @@ class NotificationManager: ObservableObject {
         saveSettings()
     }
     
-    // MARK: - Bedtime Notifications
-    private func scheduleBedtimeNotification(currentSteps: Int, targetSteps: Int) {
-        guard currentSteps < targetSteps else {
-            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["bedtime-reminder"])
-            return
-        }
-        
-        guard let bedtime = getBedtime() else {
-            print("⚠️ No bedtime found")
-            return
-        }
-        
-        let stepsRemaining = targetSteps - currentSteps
-        let notificationTime = Calendar.current.date(byAdding: .minute,
-                                                   value: -settings.bedtimeOffsetMinutes,
-                                                   to: bedtime)!
-        
-        guard notificationTime > Date() else {
-            print("⚠️ Bedtime notification time has passed")
-            return
-        }
-        
-        let content = UNMutableNotificationContent()
-        content.title = "Stepper Reminder 🏃‍♀️"
-        content.body = "You need \(stepsRemaining) more steps before bedtime in \(settings.bedtimeHours)h \(settings.bedtimeMinutes)m!"
-        content.sound = .default
-        content.badge = NSNumber(value: UIApplication.shared.applicationIconBadgeNumber + 1)
-        
-        let triggerComponents = Calendar.current.dateComponents([.hour, .minute], from: notificationTime)
-        let trigger = UNCalendarNotificationTrigger(dateMatching: triggerComponents, repeats: false)
-        
-        let request = UNNotificationRequest(identifier: "bedtime-reminder", content: content, trigger: trigger)
-        
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                print("❌ Failed to schedule bedtime notification: \(error)")
-            } else {
-                let formatter = DateFormatter()
-                formatter.timeStyle = .short
-                print("✅ Bedtime notification scheduled for \(formatter.string(from: notificationTime))")
-            }
-        }
-    }
-    
     private func getBedtime() -> Date? {
         let calendar = Calendar.current
         let bedtimeComponents = calendar.dateComponents([.hour, .minute], from: settings.customBedtime)
@@ -669,4 +893,217 @@ class NotificationManager: ObservableObject {
         
         return bedtime
     }
-}
+    
+    // MARK: - Debug and Testing Methods
+    
+    /// Add a test notification for debugging (only in debug builds)
+    #if DEBUG
+    func addTestNotification(for date: Date, hour: Int, type: NotificationTimestamp.NotificationType = .inactivity) {
+        let calendar = Calendar.current
+        var components = calendar.dateComponents([.year, .month, .day], from: date)
+        components.hour = hour
+        components.minute = Int.random(in: 0...59)
+        
+        if let testDate = calendar.date(from: components) {
+            let timestamp = NotificationTimestamp(date: testDate, type: type)
+            notificationTimestamps.append(timestamp)
+            saveNotificationTimestamps()
+            print("🧪 Added test notification: \(timestamp.date) (hour \(hour))")
+        }
+    }
+    
+    /// Clear all notification data for testing
+    func clearAllNotificationData() {
+        notificationTimestamps.removeAll()
+        hourlyCountsCache.removeAll()
+        saveNotificationTimestamps()
+        
+        userDefaults.removeObject(forKey: dailyNotificationCountKey)
+        print("🧹 Cleared all notification data for testing")
+    }
+    #endif
+    
+    func migrateExistingNotificationData() {
+           let migrationKey = "HourlyNotificationMigrationComplete"
+           
+           // Check if migration has already been completed
+           if UserDefaults.standard.bool(forKey: migrationKey) {
+               print("✅ Hourly notification migration already completed")
+               return
+           }
+           
+           print("🔄 Starting migration of existing notification data...")
+           
+           // Get existing daily counts
+           let existingCounts = getDailyNotificationCounts()
+           
+           if !existingCounts.isEmpty {
+               print("📊 Found \(existingCounts.count) days of existing notification data to migrate")
+               
+               // Convert daily counts to mock hourly data
+               for (dateString, count) in existingCounts {
+                   if let date = stringToDate(dateString), count > 0 {
+                       // Distribute notifications across typical work hours (9 AM - 5 PM)
+                       let workHours = [9, 10, 11, 13, 14, 15, 16, 17] // Skip lunch hour (12)
+                       let notificationsPerHour = max(1, count / workHours.count)
+                       let remainingNotifications = count % workHours.count
+                       
+                       for (index, hour) in workHours.enumerated() {
+                           let hourlyCount = notificationsPerHour + (index < remainingNotifications ? 1 : 0)
+                           
+                           // Create mock timestamps for this hour
+                           for notificationIndex in 0..<hourlyCount {
+                               let calendar = Calendar.current
+                               var components = calendar.dateComponents([.year, .month, .day], from: date)
+                               components.hour = hour
+                               components.minute = Int.random(in: 0...59)
+                               
+                               if let mockDate = calendar.date(from: components) {
+                                   let mockTimestamp = NotificationTimestamp(date: mockDate, type: .inactivity)
+                                   notificationTimestamps.append(mockTimestamp)
+                               }
+                           }
+                       }
+                   }
+               }
+               
+               // Save migrated data
+               saveNotificationTimestamps()
+               print("✅ Migration complete: converted \(existingCounts.values.reduce(0, +)) notifications to hourly format")
+           } else {
+               print("ℹ️ No existing notification data found to migrate")
+           }
+           
+           // Mark migration as complete
+           UserDefaults.standard.set(true, forKey: migrationKey)
+           print("🎯 Hourly notification migration marked as complete")
+       }
+       
+       /// Helper method to convert date string to Date
+       private func stringToDate(_ dateString: String) -> Date? {
+           let formatter = DateFormatter()
+           formatter.dateFormat = "yyyy-MM-dd"
+           return formatter.date(from: dateString)
+       }
+       
+       /// Generate sample data for testing and demonstration
+       func generateSampleNotificationData(days: Int = 30) {
+           #if DEBUG
+           print("🧪 Generating \(days) days of sample notification data...")
+           
+           let calendar = Calendar.current
+           let today = calendar.startOfDay(for: Date())
+           
+           for dayOffset in 0..<days {
+               guard let date = calendar.date(byAdding: .day, value: -dayOffset, to: today) else { continue }
+               
+               // Simulate realistic notification patterns
+               let isWeekend = calendar.component(.weekday, from: date) == 1 || calendar.component(.weekday, from: date) == 7
+               let notificationProbability = isWeekend ? 0.1 : 0.3 // Less likely on weekends
+               
+               // Work hours where inactivity notifications are most likely
+               let workHours = [9, 10, 11, 13, 14, 15, 16, 17]
+               
+               for hour in workHours {
+                   if Double.random(in: 0...1) < notificationProbability {
+                       // Add 1-2 notifications for this hour
+                       let notificationCount = Int.random(in: 1...2)
+                       
+                       for _ in 0..<notificationCount {
+                           var components = calendar.dateComponents([.year, .month, .day], from: date)
+                           components.hour = hour
+                           components.minute = Int.random(in: 0...59)
+                           
+                           if let notificationDate = calendar.date(from: components) {
+                               let timestamp = NotificationTimestamp(date: notificationDate, type: .inactivity)
+                               notificationTimestamps.append(timestamp)
+                           }
+                       }
+                   }
+               }
+               
+               // Occasional evening notifications (less frequent)
+               let eveningHours = [18, 19, 20]
+               for hour in eveningHours {
+                   if Double.random(in: 0...1) < 0.1 { // 10% chance
+                       var components = calendar.dateComponents([.year, .month, .day], from: date)
+                       components.hour = hour
+                       components.minute = Int.random(in: 0...59)
+                       
+                       if let notificationDate = calendar.date(from: components) {
+                           let timestamp = NotificationTimestamp(date: notificationDate, type: .inactivity)
+                           notificationTimestamps.append(timestamp)
+                       }
+                   }
+               }
+           }
+           
+           saveNotificationTimestamps()
+           print("✅ Generated sample notification data for \(days) days")
+           print("📊 Total notifications: \(notificationTimestamps.count)")
+           #endif
+       }
+       
+       /// Export notification data for debugging/analysis
+       func exportNotificationData() -> String {
+           var export = "Date,Hour,Type,Timestamp\n"
+           
+           let sortedTimestamps = notificationTimestamps.sorted { $0.date < $1.date }
+           
+           for timestamp in sortedTimestamps {
+               let formatter = DateFormatter()
+               formatter.dateFormat = "yyyy-MM-dd"
+               let dateString = formatter.string(from: timestamp.date)
+               
+               formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+               let fullTimestamp = formatter.string(from: timestamp.date)
+               
+               export += "\(dateString),\(timestamp.hour),\(timestamp.type.rawValue),\(fullTimestamp)\n"
+           }
+           
+           return export
+       }
+       
+       /// Get statistics about notification data
+       func getNotificationStatistics() -> [String: Any] {
+           let totalNotifications = notificationTimestamps.count
+           let uniqueDays = Set(notificationTimestamps.map { Calendar.current.startOfDay(for: $0.date) }).count
+           
+           var hourCounts: [Int: Int] = [:]
+           var typeCounts: [String: Int] = [:]
+           
+           for timestamp in notificationTimestamps {
+               hourCounts[timestamp.hour, default: 0] += 1
+               typeCounts[timestamp.type.rawValue, default: 0] += 1
+           }
+           
+           let mostActiveHour = hourCounts.max(by: { $0.value < $1.value })?.key ?? 0
+           let averagePerDay = uniqueDays > 0 ? Double(totalNotifications) / Double(uniqueDays) : 0
+           
+           return [
+               "totalNotifications": totalNotifications,
+               "uniqueDays": uniqueDays,
+               "averageNotificationsPerDay": averagePerDay,
+               "mostActiveHour": mostActiveHour,
+               "hourlyDistribution": hourCounts,
+               "typeDistribution": typeCounts,
+               "dataDateRange": getDataDateRange()
+           ]
+       }
+       
+       private func getDataDateRange() -> [String: String] {
+           guard !notificationTimestamps.isEmpty else {
+               return ["earliest": "No data", "latest": "No data"]
+           }
+           
+           let sortedDates = notificationTimestamps.map(\.date).sorted()
+           let formatter = DateFormatter()
+           formatter.dateStyle = .medium
+           
+           return [
+               "earliest": formatter.string(from: sortedDates.first!),
+               "latest": formatter.string(from: sortedDates.last!)
+           ]
+       }
+   }
+
