@@ -61,8 +61,9 @@ class HealthManager: ObservableObject {
     private func updateNotificationManager() {
         guard let notificationManager = notificationManager else { return }
         
-        let currentTarget = targetManager.currentTarget
-        notificationManager.updateStepCount(stepCount, targetSteps: currentTarget)
+        let today = Date()
+        let todaysTarget = targetManager.getTargetForDate(today)
+        notificationManager.updateStepCount(stepCount, targetSteps: todaysTarget)
     }
     
     func getNotificationManager() -> NotificationManager? {
@@ -514,10 +515,10 @@ class HealthManager: ObservableObject {
         
         let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
         let calendar = Calendar.current
-        let endDate = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date()))! // Include full today
-        let startDate = calendar.date(byAdding: .day, value: -6, to: calendar.startOfDay(for: Date()))! // Last 7 days including today
+        let endDate = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date()))!
+        let startDate = calendar.date(byAdding: .day, value: -29, to: calendar.startOfDay(for: Date()))! // Last 30 days
         
-        print("📊 Fetching weekly steps from \(startDate) to \(endDate)")
+        print("📊 Fetching 30-day history from \(startDate) to \(endDate)")
         
         let predicate = HKQuery.predicateForSamples(
             withStart: startDate,
@@ -536,23 +537,22 @@ class HealthManager: ObservableObject {
         query.initialResultsHandler = { [weak self] _, results, error in
             DispatchQueue.main.async {
                 if let error = error {
-                    print("❌ Error fetching weekly steps: \(error.localizedDescription)")
+                    print("❌ Error fetching step history: \(error.localizedDescription)")
                     return
                 }
                 
                 guard let results = results else {
-                    print("❌ No results from weekly steps query")
+                    print("❌ No results from step history query")
                     return
                 }
                 
                 var stepDataArray: [StepData] = []
                 let today = calendar.startOfDay(for: Date())
                 
-                // Create entries for each day in the range
-                for dayOffset in 0..<7 {
-                    guard let dayDate = calendar.date(byAdding: .day, value: -6 + dayOffset, to: today) else { continue }
+                // Create entries for each day in the range (30 days)
+                for dayOffset in 0..<30 {
+                    guard let dayDate = calendar.date(byAdding: .day, value: -29 + dayOffset, to: today) else { continue }
                     
-                    // Find statistics for this specific day
                     var daySteps = 0
                     results.enumerateStatistics(from: dayDate, to: calendar.date(byAdding: .day, value: 1, to: dayDate)!) { statistic, _ in
                         if calendar.isDate(statistic.startDate, inSameDayAs: dayDate) {
@@ -566,21 +566,22 @@ class HealthManager: ObservableObject {
                     }
                     
                     let targetSteps = self?.targetManager.getTargetForDate(dayDate) ?? 10000
-                    let stepData = StepData(date: dayDate, steps: daySteps, targetSteps: targetSteps)
+                    let notificationCount = self?.notificationManager?.getInactivityNotificationCount(for: dayDate) ?? 0
+                    
+                    var stepData = StepData(date: dayDate, steps: daySteps, targetSteps: targetSteps)
+                    stepData.inactivityNotifications = notificationCount
                     stepDataArray.append(stepData)
                     
                     // Save to Core Data for persistence
                     self?.saveStepData(daySteps, for: dayDate, target: targetSteps)
-                    
-                    print("📅 \(dayDate): \(daySteps) steps (target: \(targetSteps))")
                 }
                 
-                // Smooth update for weekly steps
                 withAnimation(.easeInOut(duration: 0.5)) {
                     self?.weeklySteps = stepDataArray.sorted { $0.date < $1.date }
                 }
                 
-                print("✅ Weekly steps updated: \(stepDataArray.count) days")
+                print("✅ 30-day step history updated: \(stepDataArray.count) days")
+                self?.updateNotificationManager()
             }
         }
         

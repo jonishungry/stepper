@@ -73,9 +73,7 @@ struct StepHistoryContentView: View {
         VStack(spacing: 20) {
             StepHistoryChartView(
                 weeklySteps: weeklySteps,
-                healthManager: healthManager,
-                selectedDay: $selectedDay,
-                showingDayDetail: $showingDayDetail
+                healthManager: healthManager
             )
             StepHistoryLegendView()
             StepHistoryStatsView(weeklySteps: weeklySteps)
@@ -101,67 +99,113 @@ struct StepHistoryContentView: View {
 struct StepHistoryChartView: View {
     let weeklySteps: [StepData]
     @ObservedObject var healthManager: HealthManager
-    @Binding var selectedDay: StepData?
-    @Binding var showingDayDetail: Bool
+    @State private var selectedDay: StepData?
+    @State private var showingDayDetail = false
     
-    private var maxValue: Int {
-        let maxSteps = weeklySteps.map(\.steps).max() ?? 0
-        let maxTarget = weeklySteps.map(\.targetSteps).max() ?? 0
-        return max(maxSteps, maxTarget)
-    }
-    
-    private var chartMaxValue: Int {
-        return Int(Double(maxValue) * 1.1)
-    }
-    
-    private var sortedWeeklySteps: [StepData] {
+    private var sortedSteps: [StepData] {
         return weeklySteps.sorted { $0.date < $1.date }
     }
     
     var body: some View {
-        VStack(spacing: 12) {
-            ZStack {
-                Chart(sortedWeeklySteps) { stepData in
-                    BarMark(
-                        x: .value("Day", stepData.dayName),
-                        y: .value("Steps", stepData.steps)
-                    )
-                    .foregroundStyle(stepData.targetMet ? Color.stepperYellow : Color.stepperLightTeal)
-                    .cornerRadius(6)
-                    
-                    PointMark(
-                        x: .value("Day", stepData.dayName),
-                        y: .value("Target", stepData.targetSteps)
-                    )
-                    .symbol(Circle())
-                    .symbolSize(100)
-                    .foregroundStyle(Color.stepperCream)
-                }
-                .chartYScale(domain: 0...chartMaxValue)
-                .frame(height: 300)
-                
-                // Back to simple invisible buttons - this approach works reliably
-                HStack(spacing: 0) {
-                    ForEach(0..<sortedWeeklySteps.count, id: \.self) { index in
-                        Rectangle()
-                            .fill(Color.clear)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                let stepData = sortedWeeklySteps[index]
-                                selectedDay = stepData
-                                showingDayDetail = true
-                                print("📊 Tapped index \(index): \(stepData.dayName) - \(stepData.fullDate)")
-                            }
+        ZStack {
+            VStack {
+                ScrollView(.horizontal, showsIndicators: true) {
+                    Chart(sortedSteps) { stepData in
+                        BarMark(
+                            x: .value("Date", stepData.date, unit: .day),
+                            y: .value("Steps", stepData.steps)
+                        )
+                        .foregroundStyle(stepData.targetMet ? Color.stepperYellow : Color.stepperLightTeal)
+                        .opacity(selectedDay?.id == stepData.id ? 1.0 : 0.7)
+                        .cornerRadius(6)
+                        
+                        PointMark(
+                            x: .value("Date", stepData.date, unit: .day),
+                            y: .value("Target", stepData.targetSteps)
+                        )
+                        .symbol(Circle())
+                        .symbolSize(selectedDay?.id == stepData.id ? 140 : 100)
+                        .foregroundStyle(Color.stepperCream)
                     }
+                    .chartXAxis {
+                        AxisMarks(values: .stride(by: .day)) { value in
+                            if let date = value.as(Date.self) {
+                                AxisGridLine()
+                                AxisValueLabel {
+                                    VStack(spacing: 2) {
+                                        Text(dayFormatter.string(from: date))
+                                            .font(.caption2)
+                                            .foregroundColor(.stepperCream)
+                                        Text(dateFormatter.string(from: date))
+                                            .font(.caption2)
+                                            .foregroundColor(.stepperCream.opacity(0.8))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .chartYScale(domain: 0...maxChartValue)
+                    .frame(width: CGFloat(sortedSteps.count) * 60, height: 300)
+                    .padding()
                 }
-                .frame(height: 300)
+                .background(ChartBackgroundStyle())
+                .onTapGesture { location in
+                    handleChartTap(location: location)
+                }
+                
+                Text("Swipe to see more days • Tap any bar for details")
+                    .font(.caption)
+                    .foregroundColor(.stepperCream.opacity(0.6))
             }
-            .padding()
-            .background(ChartBackgroundStyle())
             
-            Text("Tap any bar for detailed stats")
-                .font(.caption)
-                .foregroundColor(.stepperCream.opacity(0.6))
+            // Overlay Day Detail View
+            if showingDayDetail, let selectedDay = selectedDay {
+                Rectangle()
+                    .fill(Color.clear)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            showingDayDetail = false
+                        }
+                    }
+                
+                DayDetailOverlay(
+                    stepData: selectedDay,
+                    healthManager: healthManager,
+                    isPresented: $showingDayDetail
+                )
+            }
+        }
+    }
+    
+    private var maxChartValue: Int {
+        let maxSteps = sortedSteps.map(\.steps).max() ?? 0
+        let maxTarget = sortedSteps.map(\.targetSteps).max() ?? 0
+        return Int(Double(max(maxSteps, maxTarget)) * 1.1)
+    }
+    
+    private var dayFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "E"
+        return formatter
+    }
+    
+    private var dateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M/d"
+        return formatter
+    }
+    
+    private func handleChartTap(location: CGPoint) {
+        let chartWidth = CGFloat(sortedSteps.count) * 60
+        let barWidth: CGFloat = 60
+        let tappedIndex = Int(location.x / barWidth)
+        
+        if tappedIndex >= 0 && tappedIndex < sortedSteps.count {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                selectedDay = sortedSteps[tappedIndex]
+                showingDayDetail = true
+            }
         }
     }
 }
@@ -219,14 +263,33 @@ struct StepHistoryStatsView: View {
         return weeklySteps.sorted { $0.date < $1.date }
     }
     
+    private var totalNotifications: Int {
+        return sortedSteps.map(\.inactivityNotifications).reduce(0, +)
+    }
+    
+    private var averageNotifications: Double {
+        let total = totalNotifications
+        let count = sortedSteps.count
+        return count > 0 ? Double(total) / Double(count) : 0
+    }
+    
+    private var dayCount: Int {
+        return sortedSteps.count
+    }
+    
     var body: some View {
         VStack(spacing: 15) {
             HStack {
-                Text("Last 7 Days Summary")
+                Image(systemName: "shoeprints.fill")
+                    .foregroundColor(.stepperYellow)
+                Text("Last \(dayCount) Days Summary")
                     .font(.headline)
                     .foregroundColor(.stepperCream)
+                Image(systemName: "shoeprints.fill")
+                    .foregroundColor(.stepperYellow)
             }
             
+            // First row: Steps stats
             HStack(spacing: 20) {
                 VStack {
                     Text("\(sortedSteps.map(\.steps).reduce(0, +))")
@@ -256,6 +319,60 @@ struct StepHistoryStatsView: View {
                     Text("Goals Met")
                         .font(.caption)
                         .foregroundColor(.stepperCream.opacity(0.7))
+                }
+            }
+            
+            // Second row: Notification stats
+            HStack(spacing: 20) {
+                VStack {
+                    Text("\(totalNotifications)")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(totalNotifications > 0 ? .orange : .green)
+                    Text("Total Reminders")
+                        .font(.caption)
+                        .foregroundColor(.stepperCream.opacity(0.7))
+                }
+                
+                VStack {
+                    Text(String(format: "%.1f", averageNotifications))
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(averageNotifications > 1 ? .orange : .stepperLightTeal)
+                    Text("Avg per Day")
+                        .font(.caption)
+                        .foregroundColor(.stepperCream.opacity(0.7))
+                }
+                
+                VStack {
+                    Text("\(sortedSteps.filter { $0.inactivityNotifications == 0 }.count)")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.green)
+                    Text("Active Days")
+                        .font(.caption)
+                        .foregroundColor(.stepperCream.opacity(0.7))
+                }
+            }
+            
+            // Summary message
+            if totalNotifications == 0 {
+                HStack {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    Text("Excellent! Stayed active for \(dayCount) days! 🎉")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                    Spacer()
+                }
+            } else if averageNotifications > 2 {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text("Consider staying more active throughout the day")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                    Spacer()
                 }
             }
         }
