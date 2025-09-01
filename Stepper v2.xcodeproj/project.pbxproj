@@ -418,7 +418,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Stepper-v2-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "This app needs access to your step count to display your daily activity";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "This app needs access to your step count to display your daily activity";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "This app needs access to your step count to display your daily activity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMotionUsageDescription = "This app uses motion sensors to provide real-time step counting when the app is active.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -455,7 +457,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Stepper-v2-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "This app needs access to your step count to display your daily activity";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "This app needs access to your step count to display your daily activity";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "This app needs access to your step count to display your daily activity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMotionUsageDescription = "This app uses motion sensors to provide real-time step counting when the app is active.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
