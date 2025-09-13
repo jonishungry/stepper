@@ -24,8 +24,6 @@ struct MainView: View {
                         TodayStepsView(healthManager: healthManager)
                     case .history:
                         StepHistoryView(healthManager: healthManager)
-                    case .inactivity:
-                        InactivityHistoryView(healthManager: healthManager)
                     case .notifications:
                         NotificationSettingsView(notificationManager: notificationManager)
                     }

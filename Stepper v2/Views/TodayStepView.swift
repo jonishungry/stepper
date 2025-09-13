@@ -1,10 +1,17 @@
+// Updated TodayStepsView with Goal Celebration Integration
+
 import SwiftUI
 
-// MARK: - Today's Steps View with Notification Tracking
+// Add these new properties and methods to TodayStepsView:
+
 struct TodayStepsView: View {
     @ObservedObject var healthManager: HealthManager
     @State private var showingTargetSetting = false
     @State private var todaysNotificationCount = 0
+    
+    // NEW: Goal celebration state
+    @StateObject private var goalAchievementManager = GoalAchievementManager()
+    @State private var hasCheckedGoalToday = false
     
     var targetManager: TargetManager {
         healthManager.getTargetManager()
@@ -21,14 +28,37 @@ struct TodayStepsView: View {
     
     var body: some View {
         VStack(spacing: 30) {
-            // Header with footprints
+            // Header with footprints and streak info
             VStack(spacing: 15) {
                 HStack {
                     Text("Today's Steps")
                         .font(.largeTitle)
                         .fontWeight(.bold)
                         .foregroundColor(.stepperCream)
-
+                }
+                
+                // NEW: Goal streak display
+                if goalAchievementManager.getCurrentStreak() > 0 {
+                    HStack(spacing: 8) {
+                        Image(systemName: "flame.fill")
+                            .foregroundColor(.orange)
+                        Text("\(goalAchievementManager.getCurrentStreak()) day streak!")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.orange)
+                        Image(systemName: "flame.fill")
+                            .foregroundColor(.orange)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.orange.opacity(0.2))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.orange.opacity(0.4), lineWidth: 1)
+                            )
+                    )
                 }
             }
                         
@@ -158,11 +188,14 @@ struct TodayStepsView: View {
                                 .fill(Color.stepperTeal.opacity(0.3))
                         )
                         
-                        // NEW: Inactivity Notifications Section
-                        InactivityNotificationStatsView(
-                            notificationCount: todaysNotificationCount,
-                            isNotificationEnabled: notificationManager?.settings.inactivityNotificationEnabled ?? false
-                        )
+//                        // Inactivity Notifications Section
+//                        InactivityNotificationStatsView(
+//                            notificationCount: todaysNotificationCount,
+//                            isNotificationEnabled: notificationManager?.settings.inactivityNotificationEnabled ?? false
+//                        )
+                        
+                        // NEW: Recent achievements summary
+                        RecentAchievementsSummaryView(goalAchievementManager: goalAchievementManager)
                     }
                 }
             } else {
@@ -197,18 +230,51 @@ struct TodayStepsView: View {
             }
             
             Spacer()
-            
         }
         .padding()
         .sheet(isPresented: $showingTargetSetting) {
             TargetSettingView(targetManager: targetManager, isPresented: $showingTargetSetting)
         }
+        // NEW: Goal celebration overlay
+        .fullScreenCover(isPresented: $goalAchievementManager.shouldShowCelebration) {
+            GoalCelebrationView(
+                stepCount: healthManager.stepCount,
+                targetSteps: targetManager.currentTarget,
+                isPresented: $goalAchievementManager.shouldShowCelebration
+            )
+        }
         .onAppear {
             updateNotificationCount()
         }
-        .onChange(of: healthManager.stepCount) { _ in
-            // Update notification count when steps change (might indicate app became active)
+        .onChange(of: healthManager.stepCount) { newStepCount in
             updateNotificationCount()
+            
+            // NEW: Check for goal achievement
+            if !hasCheckedGoalToday {
+                goalAchievementManager.checkForGoalAchievement(
+                    currentSteps: newStepCount,
+                    targetSteps: targetManager.currentTarget
+                )
+                
+                // Only check once per app session
+                if newStepCount >= targetManager.currentTarget {
+                    hasCheckedGoalToday = true
+                }
+            }
+        }
+        // NEW: Reset goal check when app becomes active (new day or app restart)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            let today = Calendar.current.startOfDay(for: Date())
+            let lastCheck = UserDefaults.standard.object(forKey: "LastGoalCheckDate") as? Date
+            
+            if let lastCheck = lastCheck,
+               !Calendar.current.isDate(lastCheck, inSameDayAs: today) {
+                hasCheckedGoalToday = false
+                UserDefaults.standard.set(today, forKey: "LastGoalCheckDate")
+            } else if lastCheck == nil {
+                hasCheckedGoalToday = false
+                UserDefaults.standard.set(today, forKey: "LastGoalCheckDate")
+            }
         }
     }
     
@@ -219,64 +285,53 @@ struct TodayStepsView: View {
     }
 }
 
-// MARK: - Inactivity Notification Stats Component
-struct InactivityNotificationStatsView: View {
-    let notificationCount: Int
-    let isNotificationEnabled: Bool
+// MARK: - NEW: Recent Achievements Summary View
+struct RecentAchievementsSummaryView: View {
+    @ObservedObject var goalAchievementManager: GoalAchievementManager
     
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                Image(systemName: "bell.fill")
+                Image(systemName: "trophy.fill")
                     .foregroundColor(.stepperYellow)
-                Text("Nudges Today")
+                Text("Recent Achievements")
                     .font(.headline)
                     .foregroundColor(.stepperCream.opacity(0.8))
                 Spacer()
             }
             
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(notificationCount)")
-                        .font(.system(size: 36, weight: .bold, design: .rounded))
-                        .foregroundColor(notificationCount > 0 ? .orange : .stepperLightTeal)
+            HStack(spacing: 30) {
+                VStack(alignment: .center, spacing: 4) {
+                    Text("\(goalAchievementManager.getCurrentStreak())")
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .foregroundColor(.orange)
                     
-                    Text(notificationCount == 1 ? "Reminder sent" : "Reminders sent")
+                    Text("Day Streak")
                         .font(.caption)
                         .foregroundColor(.stepperCream.opacity(0.7))
                 }
                 
-                Spacer()
+                VStack(alignment: .center, spacing: 4) {
+                    Text("\(goalAchievementManager.getRecentAchievements())")
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .foregroundColor(.green)
+                    
+                    Text("Goals This Month")
+                        .font(.caption)
+                        .foregroundColor(.stepperCream.opacity(0.7))
+                }
                 
-                VStack(alignment: .trailing, spacing: 4) {
-                    if !isNotificationEnabled {
-                        Image(systemName: "bell.slash")
-                            .font(.title2)
-                            .foregroundColor(.stepperCream.opacity(0.5))
-                        
-                        Text("Disabled")
-                            .font(.caption)
-                            .foregroundColor(.stepperCream.opacity(0.5))
-                    } else if notificationCount == 0 {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(.green)
-                        
-                        Text("Great job!")
-                            .font(.caption)
-                            .foregroundColor(.green)
-                    } else {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.title2)
-                            .foregroundColor(.orange)
-                        
-                        Text("Stay active")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                    }
+                VStack(alignment: .center, spacing: 4) {
+                    let percentage = min(100, Int((Double(goalAchievementManager.getRecentAchievements()) / 30.0) * 100))
+                    Text("\(percentage)%")
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .foregroundColor(.stepperYellow)
+                    
+                    Text("Success Rate")
+                        .font(.caption)
+                        .foregroundColor(.stepperCream.opacity(0.7))
                 }
             }
-            
         }
         .padding()
         .background(
@@ -284,12 +339,10 @@ struct InactivityNotificationStatsView: View {
                 .fill(Color.stepperCream.opacity(0.05))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(
-                            notificationCount > 0 ? Color.orange.opacity(0.3) :
-                            (isNotificationEnabled ? Color.green.opacity(0.3) : Color.stepperCream.opacity(0.2)),
-                            lineWidth: 1
-                        )
+                        .stroke(Color.stepperYellow.opacity(0.2), lineWidth: 1)
                 )
         )
     }
 }
+
+

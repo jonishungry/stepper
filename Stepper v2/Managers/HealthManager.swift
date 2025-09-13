@@ -285,122 +285,116 @@ class HealthManager: ObservableObject {
     
     // MARK: - HealthKit Permission Methods
     func requestHealthKitPermission() {
-        guard HKHealthStore.isHealthDataAvailable() else {
-            DispatchQueue.main.async {
-                self.authorizationStatus = "Health data not available"
+            guard HKHealthStore.isHealthDataAvailable() else {
+                DispatchQueue.main.async {
+                    self.authorizationStatus = "Health data not available"
+                }
+                return
             }
-            return
-        }
-        
-        let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
-        let typesToRead: Set<HKObjectType> = [stepType]
-        
-        healthStore.requestAuthorization(toShare: nil, read: typesToRead) { [weak self] success, error in
-            DispatchQueue.main.async {
-                if success {
-                    // Test if we can actually read data to confirm authorization
-                    self?.testHealthKitAccess { hasAccess in
-                        if hasAccess {
-                            // Store authorization locally for persistence
-                            UserDefaults.standard.set(true, forKey: self?.authorizationKey ?? "")
-                            self?.authorizationStatus = "Authorized"
-                            print("✅ HealthKit authorization confirmed and stored")
-                            
-                            // Start tracking
-                            if !(self?.isRealtimeActive ?? false) {
+            
+            print("🔐 Requesting HealthKit permission...")
+            
+            let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
+            let typesToRead: Set<HKObjectType> = [stepType]
+            
+            healthStore.requestAuthorization(toShare: nil, read: typesToRead) { [weak self] success, error in
+                DispatchQueue.main.async {
+                    if let error = error {
+                        print("❌ HealthKit authorization error: \(error.localizedDescription)")
+                        self?.authorizationStatus = "Error"
+                        return
+                    }
+                    
+                    if success {
+                        print("✅ HealthKit authorization request completed - testing access...")
+                        
+                        // Always test actual access after permission request
+                        self?.testHealthKitAccess { hasAccess in
+                            if hasAccess {
+                                UserDefaults.standard.set(true, forKey: self?.authorizationKey ?? "")
+                                self?.authorizationStatus = "Authorized"
+                                print("✅ HealthKit access confirmed after permission request")
+                                
+                                // Start tracking immediately
                                 self?.startHybridTracking()
                                 self?.fetchWeeklySteps()
                                 self?.setupLiveQuery()
+                            } else {
+                                UserDefaults.standard.set(false, forKey: self?.authorizationKey ?? "")
+                                self?.authorizationStatus = "Denied"
+                                print("❌ HealthKit access still denied after permission request")
                             }
-                        } else {
-                            self?.authorizationStatus = "Denied"
-                            UserDefaults.standard.set(false, forKey: self?.authorizationKey ?? "")
-                            print("❌ HealthKit authorization denied")
                         }
+                    } else {
+                        UserDefaults.standard.set(false, forKey: self?.authorizationKey ?? "")
+                        self?.authorizationStatus = "Denied"
+                        print("❌ HealthKit authorization request failed")
                     }
-                } else {
-                    self?.authorizationStatus = "Denied"
-                    UserDefaults.standard.set(false, forKey: self?.authorizationKey ?? "")
-                    print("❌ HealthKit authorization failed: \(error?.localizedDescription ?? "Unknown error")")
                 }
             }
         }
-    }
      
     func checkAuthorizationStatus() {
-        guard HKHealthStore.isHealthDataAvailable() else {
-            DispatchQueue.main.async {
-                self.authorizationStatus = "Health data not available"
-            }
-            return
-        }
-        
-        // First check if we have previously stored authorization
-        let hasStoredAuth = UserDefaults.standard.bool(forKey: authorizationKey)
-        
-        if hasStoredAuth {
-            print("✅ Found stored HealthKit authorization")
-            
-            // Test if we still have access (user might have revoked in Settings)
-            testHealthKitAccess { [weak self] hasAccess in
-                if hasAccess {
-                    self?.authorizationStatus = "Authorized"
-                    print("✅ HealthKit access confirmed - Starting tracking")
-                    
-                    // Only start tracking if we're not already tracking
-                    if !(self?.isRealtimeActive ?? false) {
-                        self?.startHybridTracking()
-                        self?.fetchWeeklySteps()
-                        self?.setupLiveQuery()
-                    }
-                } else {
-                    // Access was revoked - clear stored preference
-                    UserDefaults.standard.set(false, forKey: self?.authorizationKey ?? "")
-                    self?.authorizationStatus = "Denied"
-                    print("❌ HealthKit access revoked - cleared stored auth")
+            guard HKHealthStore.isHealthDataAvailable() else {
+                DispatchQueue.main.async {
+                    self.authorizationStatus = "Health data not available"
                 }
+                return
             }
-        } else {
-            // No stored authorization - check system status
-            let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
-            let status = healthStore.authorizationStatus(for: stepType)
             
-            DispatchQueue.main.async {
-                switch status {
-                case .notDetermined:
+            let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
+            
+            // First check the system authorization status
+            let systemStatus = healthStore.authorizationStatus(for: stepType)
+            
+            print("🔐 System HealthKit status: \(systemStatus.rawValue)")
+            
+            switch systemStatus {
+            case .notDetermined:
+                DispatchQueue.main.async {
                     self.authorizationStatus = "Not Determined"
                     print("🔐 HealthKit status: Not Determined")
-                    
-                case .sharingDenied:
+                }
+                
+            case .sharingDenied:
+                // Clear any stored authorization since it's definitely denied
+                UserDefaults.standard.set(false, forKey: authorizationKey)
+                DispatchQueue.main.async {
                     self.authorizationStatus = "Denied"
-                    print("❌ HealthKit status: Denied")
-                    
-                case .sharingAuthorized:
-                    // Even if system says authorized, test actual access
-                    self.testHealthKitAccess { [weak self] hasAccess in
-                        if hasAccess {
-                            UserDefaults.standard.set(true, forKey: self?.authorizationKey ?? "")
-                            self?.authorizationStatus = "Authorized"
-                            print("✅ HealthKit system authorized and confirmed - Starting tracking")
-                            
-                            if !(self?.isRealtimeActive ?? false) {
-                                self?.startHybridTracking()
-                                self?.fetchWeeklySteps()
-                                self?.setupLiveQuery()
-                            }
-                        } else {
-                            self?.authorizationStatus = "Denied"
-                            print("❌ HealthKit system authorized but access test failed")
+                    print("❌ HealthKit status: Definitively Denied")
+                }
+                
+            case .sharingAuthorized:
+                // System says authorized, but let's verify with actual data access
+                print("✅ System reports authorized - testing actual access...")
+                testHealthKitAccess { [weak self] hasAccess in
+                    if hasAccess {
+                        UserDefaults.standard.set(true, forKey: self?.authorizationKey ?? "")
+                        self?.authorizationStatus = "Authorized"
+                        print("✅ HealthKit access confirmed - Starting tracking")
+                        
+                        // Only start tracking if not already active
+                        if !(self?.isRealtimeActive ?? false) && self?.authorizationStatus == "Authorized" {
+                            self?.startHybridTracking()
+                            self?.fetchWeeklySteps()
+                            self?.setupLiveQuery()
                         }
+                    } else {
+                        // System says authorized but we can't actually access data
+                        // This happens sometimes - try one more permission request
+                        print("⚠️ System authorized but access test failed - may need re-permission")
+                        UserDefaults.standard.set(false, forKey: self?.authorizationKey ?? "")
+                        self?.authorizationStatus = "Not Determined"
                     }
-                    
-                @unknown default:
+                }
+                
+            @unknown default:
+                DispatchQueue.main.async {
                     self.authorizationStatus = "Unknown"
                     print("⚠️ HealthKit status: Unknown")
                 }
             }
         }
-    }
     
     private func setupLiveQuery() {
             // Don't setup multiple queries
@@ -774,7 +768,7 @@ class HealthManager: ObservableObject {
                 }
                 
                 // Get notification count for this hour from NotificationManager
-                let notifications = self?.getHourlyNotificationCount(for: date, hour: hour) ?? 0
+                let notifications = self?.getEnhancedHourlyNotificationCount(for: date, hour: hour) ?? 0
                 
                 hourlyData.append(HourlyStepData(
                     hour: hour,
@@ -789,69 +783,407 @@ class HealthManager: ObservableObject {
         
         healthStore.execute(query)
     }
-    
-    // MARK: - Fetch 30-Day Hourly Activity Data
+        
     func fetch30DayActivityData(completion: @escaping ([DayActivityData]) -> Void) {
-        guard authorizationStatus == "Authorized" else {
-            completion([])
-            return
+            guard authorizationStatus == "Authorized" else {
+                print("❌ Not authorized for HealthKit - returning empty activity data")
+                completion([])
+                return
+            }
+            
+            let calendar = Calendar.current
+            let today = calendar.startOfDay(for: Date())
+            let dispatchGroup = DispatchGroup()
+            
+            var activityDataArray: [DayActivityData] = []
+            let queue = DispatchQueue(label: "enhanced-activity-data-fetch", qos: .userInitiated, attributes: .concurrent)
+            
+            print("🔍 Starting enhanced 30-day activity data fetch...")
+            
+            // Use concurrent queue for better performance
+            for dayOffset in 0..<30 {
+                guard let dayDate = calendar.date(byAdding: .day, value: -29 + dayOffset, to: today) else { continue }
+                
+                dispatchGroup.enter()
+                
+                queue.async { [weak self] in
+                    self?.fetchEnhancedHourlyStepData(for: dayDate) { hourlyData in
+                        let totalSteps = hourlyData.map(\.steps).reduce(0, +)
+                        let totalNotifications = hourlyData.map(\.notifications).reduce(0, +)
+                        let targetSteps = self?.targetManager.getTargetForDate(dayDate) ?? 10000
+                        
+                        let dayActivity = DayActivityData(
+                            date: dayDate,
+                            hourlyData: hourlyData,
+                            totalSteps: totalSteps,
+                            totalNotifications: totalNotifications,
+                            targetSteps: targetSteps
+                        )
+                        
+                        DispatchQueue.main.async {
+                            activityDataArray.append(dayActivity)
+                            dispatchGroup.leave()
+                        }
+                    }
+                }
+            }
+            
+            // Wait for all fetches to complete with timeout
+            let timeoutResult = dispatchGroup.wait(timeout: .now() + 30) // 30 second timeout
+            
+            DispatchQueue.main.async {
+                if timeoutResult == .timedOut {
+                    print("⚠️ Activity data fetch timed out - returning partial results")
+                }
+                
+                let sortedData = activityDataArray.sorted { $0.date > $1.date }
+                print("✅ Enhanced activity data fetch complete: \(sortedData.count)/30 days")
+                completion(sortedData)
+            }
         }
         
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        let dispatchGroup = DispatchGroup()
-        
-        var activityDataArray: [DayActivityData] = []
-        let queue = DispatchQueue(label: "hourly-data-fetch", attributes: .concurrent)
-        
-        print("🔍 Starting 30-day hourly data fetch...")
-        
-        // Fetch data for each of the last 30 days
-        for dayOffset in 0..<30 {
-            guard let dayDate = calendar.date(byAdding: .day, value: -29 + dayOffset, to: today) else { continue }
+        /// Enhanced hourly step data fetching with better notification integration
+        private func fetchEnhancedHourlyStepData(for date: Date, completion: @escaping ([HourlyStepData]) -> Void) {
+            guard authorizationStatus == "Authorized" else {
+                completion([])
+                return
+            }
             
-            dispatchGroup.enter()
+            let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
+            let calendar = Calendar.current
+            let startOfDay = calendar.startOfDay(for: date)
+            let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
             
-            queue.async { [weak self] in
-                self?.fetchHourlyStepData(for: dayDate) { hourlyData in
-                    let totalSteps = hourlyData.map(\.steps).reduce(0, +)
-                    let totalNotifications = hourlyData.map(\.notifications).reduce(0, +)
-                    let targetSteps = self?.targetManager.getTargetForDate(dayDate) ?? 10000
+            let predicate = HKQuery.predicateForSamples(
+                withStart: startOfDay,
+                end: endOfDay,
+                options: .strictStartDate
+            )
+            
+            let query = HKStatisticsCollectionQuery(
+                quantityType: stepType,
+                quantitySamplePredicate: predicate,
+                options: .cumulativeSum,
+                anchorDate: startOfDay,
+                intervalComponents: DateComponents(hour: 1)
+            )
+            
+            query.initialResultsHandler = { [weak self] _, results, error in
+                if let error = error {
+                    print("❌ Error fetching enhanced hourly data for \(date): \(error.localizedDescription)")
+                    completion([])
+                    return
+                }
+                
+                guard let results = results else {
+                    print("❌ No enhanced hourly results for \(date)")
+                    completion([])
+                    return
+                }
+                
+                var hourlyData: [HourlyStepData] = []
+                
+                // Create comprehensive data for each hour
+                for hour in 0..<24 {
+                    let hourStart = calendar.date(byAdding: .hour, value: hour, to: startOfDay)!
+                    let hourEnd = calendar.date(byAdding: .hour, value: 1, to: hourStart)!
                     
-                    let dayActivity = DayActivityData(
-                        date: dayDate,
-                        hourlyData: hourlyData,
-                        totalSteps: totalSteps,
-                        totalNotifications: totalNotifications,
-                        targetSteps: targetSteps
-                    )
+                    var hourSteps = 0
                     
-                    DispatchQueue.main.async {
-                        activityDataArray.append(dayActivity)
-                        dispatchGroup.leave()
+                    // Get step statistics for this hour
+                    results.enumerateStatistics(from: hourStart, to: hourEnd) { statistic, _ in
+                        if let sum = statistic.sumQuantity() {
+                            hourSteps = Int(sum.doubleValue(for: HKUnit.count()))
+                        }
                     }
+                    
+                    // Get notification count for this hour with enhanced accuracy
+                    let notifications = self?.getEnhancedHourlyNotificationCount(for: date, hour: hour) ?? 0
+                    
+                    hourlyData.append(HourlyStepData(
+                        hour: hour,
+                        steps: hourSteps,
+                        notifications: notifications
+                    ))
+                }
+                
+                let totalSteps = hourlyData.map(\.steps).reduce(0, +)
+                print("✅ Enhanced hourly data for \(calendar.dateComponents([.month, .day], from: date)): \(totalSteps) total steps, \(hourlyData.map(\.notifications).reduce(0, +)) notifications")
+                
+                completion(hourlyData)
+            }
+            
+            healthStore.execute(query)
+        }
+        
+        /// Enhanced notification counting with better accuracy
+        private func getEnhancedHourlyNotificationCount(for date: Date, hour: Int) -> Int {
+            guard let notificationManager = notificationManager else { return 0 }
+            
+            // Use the enhanced notification manager method
+            return notificationManager.getHourlyNotificationCount(for: date, hour: hour)
+        }
+        
+        // MARK: - Activity Pattern Analysis Methods
+        
+        /// Calculate the most consistently active time period
+        func getMostActiveTimePeriod(from activityData: [DayActivityData]) -> (startHour: Int, endHour: Int, averageSteps: Int)? {
+            // Analyze 2-hour windows to find most consistently active period
+            var windowAverages: [(startHour: Int, endHour: Int, averageSteps: Double)] = []
+            
+            // Check all possible 2-hour windows during waking hours (6 AM - 11 PM)
+            for startHour in 6..<22 {
+                let endHour = startHour + 1
+                var totalSteps: Double = 0
+                var validDays = 0
+                
+                for dayData in activityData {
+                    let windowSteps = dayData.hourlyData
+                        .filter { $0.hour >= startHour && $0.hour <= endHour }
+                        .map(\.steps)
+                        .reduce(0, +)
+                    
+                    if windowSteps > 0 { // Only count days with activity
+                        totalSteps += Double(windowSteps)
+                        validDays += 1
+                    }
+                }
+                
+                if validDays > 0 {
+                    let average = totalSteps / Double(validDays)
+                    windowAverages.append((startHour: startHour, endHour: endHour, averageSteps: average))
+                }
+            }
+            
+            // Find the window with highest average
+            guard let bestWindow = windowAverages.max(by: { $0.averageSteps < $1.averageSteps }) else {
+                return nil
+            }
+            
+            return (startHour: bestWindow.startHour, endHour: bestWindow.endHour, averageSteps: Int(bestWindow.averageSteps))
+        }
+        
+        /// Calculate the most problematic (inactive) time period
+        func getMostInactiveTimePeriod(from activityData: [DayActivityData]) -> (startHour: Int, endHour: Int, averageNotifications: Double)? {
+            // Analyze 2-hour windows for inactivity patterns
+            var windowNotifications: [(startHour: Int, endHour: Int, averageNotifications: Double)] = []
+            
+            // Check waking hours only
+            for startHour in 6..<22 {
+                let endHour = startHour + 1
+                var totalNotifications: Double = 0
+                var validDays = 0
+                
+                for dayData in activityData {
+                    let windowNotifications = dayData.hourlyData
+                        .filter { $0.hour >= startHour && $0.hour <= endHour }
+                        .map(\.notifications)
+                        .reduce(0, +)
+                    
+                    totalNotifications += Double(windowNotifications)
+                    validDays += 1
+                }
+                
+                if validDays > 0 {
+                    let average = totalNotifications / Double(validDays)
+                    windowNotifications.append((startHour: startHour, endHour: endHour, averageNotifications: average))
+                }
+            }
+            
+            // Find the window with most notifications
+            guard let worstWindow = windowNotifications.max(by: { $0.averageNotifications < $1.averageNotifications }),
+                  worstWindow.averageNotifications > 0 else {
+                return nil
+            }
+            
+            return (startHour: worstWindow.startHour, endHour: worstWindow.endHour, averageNotifications: worstWindow.averageNotifications)
+        }
+        
+        /// Get activity consistency score (0-100)
+        func getActivityConsistencyScore(from activityData: [DayActivityData]) -> Int {
+            guard !activityData.isEmpty else { return 0 }
+            
+            var consistentHours = 0
+            let minimumStepsPerHour = 100 // Threshold for "active" hour
+            let wakingHours = Array(6..<23) // 6 AM to 11 PM
+            
+            for hour in wakingHours {
+                var activeDays = 0
+                
+                for dayData in activityData {
+                    if let hourData = dayData.hourlyData.first(where: { $0.hour == hour }),
+                       hourData.steps >= minimumStepsPerHour {
+                        activeDays += 1
+                    }
+                }
+                
+                // Consider hour "consistent" if active in 70% of days
+                let consistencyThreshold = Double(activityData.count) * 0.7
+                if Double(activeDays) >= consistencyThreshold {
+                    consistentHours += 1
+                }
+            }
+            
+            // Score based on how many waking hours are consistently active
+            let maxPossibleHours = wakingHours.count
+            return Int((Double(consistentHours) / Double(maxPossibleHours)) * 100)
+        }
+        
+        /// Get detailed activity insights for UI display
+        func getActivityInsights(from activityData: [DayActivityData]) -> ActivityInsights {
+            let mostActiveWindow = getMostActiveTimePeriod(from: activityData)
+            let mostInactiveWindow = getMostInactiveTimePeriod(from: activityData)
+            let consistencyScore = getActivityConsistencyScore(from: activityData)
+            
+            // Calculate total statistics
+            let totalSteps = activityData.map(\.totalSteps).reduce(0, +)
+            let averageDailySteps = activityData.isEmpty ? 0 : totalSteps / activityData.count
+            let totalNotifications = activityData.map(\.totalNotifications).reduce(0, +)
+            let goalsAchieved = activityData.filter { $0.totalSteps >= $0.targetSteps }.count
+            
+            // Calculate peak activity hour across all days
+            var hourlyTotals: [Int: Int] = [:]
+            for dayData in activityData {
+                for hourData in dayData.hourlyData {
+                    if hourData.hour >= 6 && hourData.hour < 23 { // Waking hours only
+                        hourlyTotals[hourData.hour, default: 0] += hourData.steps
+                    }
+                }
+            }
+            
+            let peakActivityHour = hourlyTotals.max(by: { $0.value < $1.value })?.key ?? 12
+            
+            return ActivityInsights(
+                mostActiveWindow: mostActiveWindow,
+                mostInactiveWindow: mostInactiveWindow,
+                consistencyScore: consistencyScore,
+                averageDailySteps: averageDailySteps,
+                totalNotifications: totalNotifications,
+                goalsAchievedCount: goalsAchieved,
+                peakActivityHour: peakActivityHour,
+                dataRange: activityData.count
+            )
+        }
+    }
+
+    // MARK: - Activity Insights Data Model
+    struct ActivityInsights {
+        let mostActiveWindow: (startHour: Int, endHour: Int, averageSteps: Int)?
+        let mostInactiveWindow: (startHour: Int, endHour: Int, averageNotifications: Double)?
+        let consistencyScore: Int // 0-100
+        let averageDailySteps: Int
+        let totalNotifications: Int
+        let goalsAchievedCount: Int
+        let peakActivityHour: Int
+        let dataRange: Int // Number of days analyzed
+        
+        var peakActivityTime: String {
+            formatHour(peakActivityHour)
+        }
+        
+        var mostActiveTimeRange: String? {
+            guard let window = mostActiveWindow else { return nil }
+            return "\(formatHour(window.startHour)) - \(formatHour(window.endHour + 1))"
+        }
+        
+        var mostInactiveTimeRange: String? {
+            guard let window = mostInactiveWindow else { return nil }
+            return "\(formatHour(window.startHour)) - \(formatHour(window.endHour + 1))"
+        }
+        
+        var consistencyLevel: String {
+            switch consistencyScore {
+            case 80...100: return "Excellent"
+            case 60...79: return "Good"
+            case 40...59: return "Fair"
+            case 20...39: return "Needs Work"
+            default: return "Poor"
+            }
+        }
+        
+        var goalSuccessRate: Int {
+            guard dataRange > 0 else { return 0 }
+            return Int((Double(goalsAchievedCount) / Double(dataRange)) * 100)
+        }
+        
+        private func formatHour(_ hour: Int) -> String {
+            if hour == 0 { return "12 AM" }
+            if hour < 12 { return "\(hour) AM" }
+            if hour == 12 { return "12 PM" }
+            return "\(hour - 12) PM"
+        }
+    }
+
+
+//    /// Get more accurate hourly notification count with caching
+//    func getHourlyNotificationCount(for date: Date, hour: Int) -> Int {
+//        let calendar = Calendar.current
+//        let dateKey = dateToString(calendar.startOfDay(for: date))
+//        
+//        // Use cached data for better performance
+//        return hourlyCountsCache[dateKey]?[hour] ?? 0
+//    }
+    
+//    /// Get notification distribution pattern for insights
+//    func getNotificationDistributionPattern() -> [Int: Double] {
+//        var hourlyTotals: [Int: Int] = [:]
+//        var totalDays = Set<String>()
+//        
+//        for timestamp in notificationTimestamps {
+//            let hour = timestamp.hour
+//            let dayKey = timestamp.dayKey
+//            
+//            hourlyTotals[hour, default: 0] += 1
+//            totalDays.insert(dayKey)
+//        }
+//        
+//        // Calculate average per day for each hour
+//        let dayCount = max(totalDays.count, 1)
+//        var averages: [Int: Double] = [:]
+//        
+//        for hour in 0..<24 {
+//            let total = hourlyTotals[hour] ?? 0
+//            averages[hour] = Double(total) / Double(dayCount)
+//        }
+//        
+//        return averages
+//    }
+    
+    /// Get activity correlation with notifications
+    func getActivityNotificationCorrelation(from activityData: [DayActivityData]) -> Double {
+        guard !activityData.isEmpty else { return 0 }
+        
+        var correlationSum: Double = 0
+        var validHours = 0
+        
+        for dayData in activityData {
+            for hourData in dayData.hourlyData {
+                // Skip sleep hours for more accurate correlation
+                if hourData.hour >= 6 && hourData.hour < 23 {
+                    // Simple inverse correlation: more steps = fewer notifications expected
+                    let expectedNotifications = hourData.steps < 100 ? 1.0 : 0.0
+                    let actualNotifications = Double(hourData.notifications)
+                    
+                    // Calculate how well expectations match reality
+                    let diff = abs(expectedNotifications - actualNotifications)
+                    correlationSum += (1.0 - min(diff, 1.0)) // Inverse difference for correlation
+                    validHours += 1
                 }
             }
         }
         
-        // Wait for all fetches to complete
-        dispatchGroup.notify(queue: .main) {
-            let sortedData = activityDataArray.sorted { $0.date > $1.date }
-            print("✅ Completed 30-day hourly data fetch: \(sortedData.count) days")
-            completion(sortedData)
-        }
+        return validHours > 0 ? correlationSum / Double(validHours) : 0
     }
     
-    // MARK: - Get notification count for specific hour
-    private func getHourlyNotificationCount(for date: Date, hour: Int) -> Int {
-        guard let notificationManager = notificationManager else { return 0 }
-        
-        // This would need to be implemented in NotificationManager
-        // For now, return 0 - in real implementation, this would check
-        // notification timestamps and count notifications for this specific hour
-        return notificationManager.getHourlyNotificationCount(for: date, hour: hour)
+    private func dateToString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
-}
+
+    
+    
+
 
 
 extension Array {

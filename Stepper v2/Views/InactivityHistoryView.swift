@@ -85,14 +85,22 @@ enum ChartDisplayMode: String, CaseIterable {
     }
 }
 
-// MARK: - Main Inactivity History View
+// MARK: - Average Activity Data Model
+struct AverageActivityData {
+    let hourlyAverageSteps: [Int: Double] // hour -> average steps
+    let hourlyAverageNotifications: [Int: Double] // hour -> average notifications
+    let totalDays: Int
+    let mostActiveHour: Int
+    let mostInactiveHour: Int // hour with most notifications
+    let mostActiveSteps: Int // steps in most active hour
+    let averageStepsInActiveHour: Double
+}
+
 struct InactivityHistoryView: View {
     @ObservedObject var healthManager: HealthManager
-    @State private var activityData: [DayActivityData] = []
+    @State private var averageActivityData: AverageActivityData?
     @State private var isLoading = true
     @State private var displayMode: ChartDisplayMode = .steps
-    @State private var mostActiveTime: String = ""
-    @State private var mostInactiveTime: String = ""
     
     var body: some View {
         VStack(spacing: 20) {
@@ -102,27 +110,23 @@ struct InactivityHistoryView: View {
             if healthManager.authorizationStatus == "Authorized" {
                 if isLoading {
                     InactivityLoadingView()
-                } else {
+                } else if let averageData = averageActivityData {
                     ScrollView {
                         VStack(spacing: 25) {
-                            // Summary Section
-                            ActivitySummaryView(
-                                mostActiveTime: mostActiveTime,
-                                mostInactiveTime: mostInactiveTime
-                            )
+                            // Enhanced Activity Summary
+                            EnhancedActivitySummaryView(averageData: averageData)
                             
                             // Mode Toggle
                             ChartModeToggle(displayMode: $displayMode)
                             
-                            // Daily Charts
-                            LazyVStack(spacing: 20) {
-                                ForEach(activityData) { dayData in
-                                    DailyActivityChart(
-                                        dayData: dayData,
-                                        displayMode: displayMode
-                                    )
-                                }
-                            }
+                            // Average Activity Chart
+                            AverageActivityChart(
+                                averageData: averageData,
+                                displayMode: displayMode
+                            )
+                            
+                            // Activity Insights
+                            ActivityInsightsView(averageData: averageData)
                             
                             // Bottom padding
                             Rectangle()
@@ -131,6 +135,9 @@ struct InactivityHistoryView: View {
                         }
                         .padding()
                     }
+                } else {
+                    Text("No activity data available")
+                        .foregroundColor(.stepperCream.opacity(0.7))
                 }
             } else {
                 InactivityPermissionView {
@@ -140,148 +147,510 @@ struct InactivityHistoryView: View {
         }
         .onAppear {
             if healthManager.authorizationStatus == "Authorized" {
-                fetchInactivityData()
+                fetchAverageActivityData()
             }
         }
         .onChange(of: healthManager.authorizationStatus) { status in
             if status == "Authorized" {
-                fetchInactivityData()
+                fetchAverageActivityData()
             }
         }
     }
     
-    private func fetchInactivityData() {
+    private func fetchAverageActivityData() {
         isLoading = true
         
-        // Fetch real hourly data from HealthKit
-        healthManager.fetch30DayActivityData { [self] activityData in
+        healthManager.fetch30DayActivityData { activityData in
             DispatchQueue.main.async {
-                self.activityData = activityData
-                self.calculateSummaryTimes()
+                self.averageActivityData = self.calculateAverageActivityData(from: activityData)
                 self.isLoading = false
             }
         }
     }
     
-    private func calculateSummaryTimes() {
-        // Calculate most active time across all days
-        var hourlyTotals: [Int: Int] = [:]
-        var hourlyNotifications: [Int: Int] = [:]
+    private func calculateAverageActivityData(from activityData: [DayActivityData]) -> AverageActivityData {
+        var hourlyStepTotals: [Int: Double] = [:]
+        var hourlyNotificationTotals: [Int: Double] = [:]
+        var hourlyDayCounts: [Int: Int] = [:]
         
+        // Aggregate data across all days
         for dayData in activityData {
             for hourData in dayData.hourlyData {
-                // Only count waking hours (6 AM - 11 PM) for activity
-                if hourData.hour >= 6 && hourData.hour < 23 {
-                    hourlyTotals[hourData.hour, default: 0] += hourData.steps
+                let hour = hourData.hour
+                
+                hourlyStepTotals[hour, default: 0] += Double(hourData.steps)
+                hourlyNotificationTotals[hour, default: 0] += Double(hourData.notifications)
+                hourlyDayCounts[hour, default: 0] += 1
+            }
+        }
+        
+        // Calculate averages
+        var hourlyAverageSteps: [Int: Double] = [:]
+        var hourlyAverageNotifications: [Int: Double] = [:]
+        
+        for hour in 0..<24 {
+            let dayCount = hourlyDayCounts[hour] ?? 1
+            hourlyAverageSteps[hour] = (hourlyStepTotals[hour] ?? 0) / Double(dayCount)
+            hourlyAverageNotifications[hour] = (hourlyNotificationTotals[hour] ?? 0) / Double(dayCount)
+        }
+        
+        // Find most active hour (excluding sleep hours 11 PM - 6 AM)
+        let wakingHours = Array(6..<23)
+        let mostActiveHour = wakingHours.max { hour1, hour2 in
+            (hourlyAverageSteps[hour1] ?? 0) < (hourlyAverageSteps[hour2] ?? 0)
+        } ?? 12
+        
+        // Find most inactive hour (most notifications, excluding sleep hours)
+        let mostInactiveHour = wakingHours.max { hour1, hour2 in
+            (hourlyAverageNotifications[hour1] ?? 0) < (hourlyAverageNotifications[hour2] ?? 0)
+        } ?? 14
+        
+        let mostActiveSteps = Int(hourlyAverageSteps[mostActiveHour] ?? 0)
+        let averageStepsInActiveHour = hourlyAverageSteps[mostActiveHour] ?? 0
+        
+        return AverageActivityData(
+            hourlyAverageSteps: hourlyAverageSteps,
+            hourlyAverageNotifications: hourlyAverageNotifications,
+            totalDays: activityData.count,
+            mostActiveHour: mostActiveHour,
+            mostInactiveHour: mostInactiveHour,
+            mostActiveSteps: mostActiveSteps,
+            averageStepsInActiveHour: averageStepsInActiveHour
+        )
+    }
+}
+
+// MARK: - Enhanced Activity Summary
+struct EnhancedActivitySummaryView: View {
+    let averageData: AverageActivityData
+    
+    private func formatHour(_ hour: Int) -> String {
+        if hour == 0 { return "12 AM" }
+        if hour < 12 { return "\(hour) AM" }
+        if hour == 12 { return "12 PM" }
+        return "\(hour - 12) PM"
+    }
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            HStack {
+                Image(systemName: "chart.line.uptrend.xyaxis")
+                    .foregroundColor(.stepperYellow)
+                Text("Activity Patterns")
+                    .font(.headline)
+                    .foregroundColor(.stepperCream)
+                Text("(\(averageData.totalDays) days)")
+                    .font(.caption)
+                    .foregroundColor(.stepperCream.opacity(0.7))
+                Image(systemName: "chart.line.uptrend.xyaxis")
+                    .foregroundColor(.stepperYellow)
+            }
+            
+            // Activity insights
+            VStack(spacing: 15) {
+                HStack(spacing: 30) {
+                    VStack(spacing: 8) {
+                        Image(systemName: "figure.run.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(.green)
+                        
+                        Text("Peak Activity")
+                            .font(.caption)
+                            .foregroundColor(.stepperCream.opacity(0.7))
+                        
+                        Text(formatHour(averageData.mostActiveHour))
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.green)
+                        
+                        Text("\(averageData.mostActiveSteps) steps avg")
+                            .font(.caption2)
+                            .foregroundColor(.green.opacity(0.8))
+                    }
+                    
+                    VStack(spacing: 8) {
+                        Image(systemName: "bell.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(.orange)
+                        
+                        Text("Most Inactive")
+                            .font(.caption)
+                            .foregroundColor(.stepperCream.opacity(0.7))
+                        
+                        Text(formatHour(averageData.mostInactiveHour))
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.orange)
+                        
+                        Text("\(String(format: "%.1f", averageData.hourlyAverageNotifications[averageData.mostInactiveHour] ?? 0)) reminders avg")
+                            .font(.caption2)
+                            .foregroundColor(.orange.opacity(0.8))
+                    }
                 }
-                hourlyNotifications[hourData.hour, default: 0] += hourData.notifications
-            }
-        }
-        
-        // Find most active hour
-        if let mostActiveHour = hourlyTotals.max(by: { $0.value < $1.value })?.key {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "h a"
-            let hour = mostActiveHour == 0 ? 12 : (mostActiveHour > 12 ? mostActiveHour - 12 : mostActiveHour)
-            let ampm = mostActiveHour < 12 ? "AM" : "PM"
-            mostActiveTime = "\(hour) \(ampm)"
-        }
-        
-        // Find most inactive hour (with most notifications)
-        if let mostInactiveHour = hourlyNotifications.filter({ $0.value > 0 }).max(by: { $0.value < $1.value })?.key {
-            let hour = mostInactiveHour == 0 ? 12 : (mostInactiveHour > 12 ? mostInactiveHour - 12 : mostInactiveHour)
-            let ampm = mostInactiveHour < 12 ? "AM" : "PM"
-            mostInactiveTime = "\(hour) \(ampm)"
-        }
-    }
-    
-    private func generateMockActivityData() -> [DayActivityData] {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        var mockData: [DayActivityData] = []
-        
-        for dayOffset in 0..<30 {
-            guard let dayDate = calendar.date(byAdding: .day, value: -29 + dayOffset, to: today) else { continue }
-            
-            var hourlyData: [HourlyStepData] = []
-            var totalSteps = 0
-            var totalNotifications = 0
-            
-            // Generate hourly data for each day
-            for hour in 0..<24 {
-                let steps = generateHourlySteps(hour: hour, dayOffset: dayOffset)
-                let notifications = generateHourlyNotifications(hour: hour, dayOffset: dayOffset)
                 
-                hourlyData.append(HourlyStepData(
-                    hour: hour,
-                    steps: steps,
-                    notifications: notifications
-                ))
+                // Insights based on patterns
+                VStack(spacing: 10) {
+                    Divider()
+                        .background(Color.stepperCream.opacity(0.3))
+                    
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("💡")
+                                .font(.title3)
+                            Text("Activity Insights")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.stepperYellow)
+                            Spacer()
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            if averageData.mostActiveHour < 12 {
+                                Text("• You're most active in the morning - great for metabolism! 🌅")
+                            } else if averageData.mostActiveHour >= 17 {
+                                Text("• You prefer evening activity - perfect for unwinding! 🌆")
+                            } else {
+                                Text("• Your peak activity is during midday - steady energy! ☀️")
+                            }
+                            
+                            let avgNotifications = averageData.hourlyAverageNotifications.values.reduce(0, +) / Double(averageData.hourlyAverageNotifications.count)
+                            if avgNotifications < 0.5 {
+                                Text("• Excellent consistency - you stay active throughout the day! 🎉")
+                            } else {
+                                Text("• Consider scheduling movement breaks around \(formatHour(averageData.mostInactiveHour))")
+                            }
+                            
+                            let totalAvgSteps = averageData.hourlyAverageSteps.values.reduce(0, +)
+                            if totalAvgSteps > 8000 {
+                                Text("• Great activity level - you average \(Int(totalAvgSteps)) steps per day! 👏")
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundColor(.stepperCream.opacity(0.8))
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.stepperTeal.opacity(0.3))
+        )
+    }
+}
+
+// MARK: - Average Activity Chart
+struct AverageActivityChart: View {
+    let averageData: AverageActivityData
+    let displayMode: ChartDisplayMode
+    @State private var selectedHour: Int? = nil
+    
+    private var chartData: [(hour: Int, value: Double)] {
+        switch displayMode {
+        case .steps:
+            return averageData.hourlyAverageSteps.map { (hour: $0.key, value: $0.value) }.sorted { $0.hour < $1.hour }
+        case .notifications:
+            return averageData.hourlyAverageNotifications.map { (hour: $0.key, value: $0.value) }.sorted { $0.hour < $1.hour }
+        }
+    }
+    
+    private var maxValue: Double {
+        let maxVal = chartData.map(\.value).max() ?? 1000
+        return maxVal * 1.1 // Add 10% padding
+    }
+    
+    private var sleepHours: [Int] {
+        return [23, 0, 1, 2, 3, 4, 5] // 11 PM to 5 AM
+    }
+    
+    var body: some View {
+        VStack(spacing: 15) {
+            HStack {
+                Text("Average \(displayMode.rawValue) by Hour")
+                    .font(.headline)
+                    .foregroundColor(.stepperCream)
+                Spacer()
+                Text("Last \(averageData.totalDays) days")
+                    .font(.caption)
+                    .foregroundColor(.stepperCream.opacity(0.7))
+            }
+            
+            // Selected Hour Detail
+            if let selectedHour = selectedHour {
+                HourAverageDetailView(
+                    hour: selectedHour,
+                    averageData: averageData,
+                    displayMode: displayMode
+                )
+            }
+            
+            // Chart
+            Chart(chartData, id: \.hour) { data in
+                BarMark(
+                    x: .value("Hour", data.hour),
+                    y: .value(displayMode.rawValue, data.value)
+                )
+                .foregroundStyle(getBarColor(for: data.hour))
+                .opacity(getBarOpacity(for: data.hour))
+                .cornerRadius(3)
                 
-                totalSteps += steps
-                totalNotifications += notifications
+                // Highlight most active/inactive hour
+                if (displayMode == .steps && data.hour == averageData.mostActiveHour) ||
+                   (displayMode == .notifications && data.hour == averageData.mostInactiveHour) {
+                    BarMark(
+                        x: .value("Hour", data.hour),
+                        y: .value(displayMode.rawValue, data.value)
+                    )
+                    .foregroundStyle(.white.opacity(0.3))
+                    .cornerRadius(3)
+                }
             }
-            
-            let targetSteps = healthManager.getTargetManager().getTargetForDate(dayDate)
-            
-            mockData.append(DayActivityData(
-                date: dayDate,
-                hourlyData: hourlyData,
-                totalSteps: totalSteps,
-                totalNotifications: totalNotifications,
-                targetSteps: targetSteps
-            ))
+            .chartXScale(domain: 0...23)
+            .chartYScale(domain: 0...maxValue)
+            .chartXAxis {
+                AxisMarks(values: [0, 6, 12, 18, 23]) { value in
+                    if let hour = value.as(Int.self) {
+                        AxisGridLine()
+                            .foregroundStyle(Color.stepperCream.opacity(0.2))
+                        AxisValueLabel {
+                            Text(formatHour(hour))
+                                .font(.caption2)
+                                .foregroundColor(Color.stepperCream.opacity(0.7))
+                        }
+                    }
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading) { value in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                        .foregroundStyle(Color.stepperCream.opacity(0.15))
+                    AxisValueLabel {
+                        if let doubleValue = value.as(Double.self) {
+                            Text("\(Int(doubleValue))")
+                                .font(.caption2)
+                                .foregroundColor(Color.stepperCream.opacity(0.6))
+                        }
+                    }
+                }
+            }
+            .frame(height: 200)
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.stepperCream.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(displayMode.color.opacity(0.3), lineWidth: 1)
+                    )
+            )
+            .onTapGesture { location in
+                let chartWidth = UIScreen.main.bounds.width - 80
+                let hourWidth = chartWidth / 24
+                let tappedHour = Int(location.x / hourWidth)
+                
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    selectedHour = tappedHour == selectedHour ? nil : min(23, max(0, tappedHour))
+                }
+            }
         }
-        
-        return mockData.sorted { $0.date > $1.date }
     }
     
-    private func generateHourlySteps(hour: Int, dayOffset: Int) -> Int {
-        // Sleep hours (11 PM - 6 AM): Very low activity
-        if hour >= 23 || hour < 6 {
-            return Int.random(in: 0...50)
+    private func getBarColor(for hour: Int) -> Color {
+        if selectedHour == hour {
+            return .white
         }
         
-        // Morning hours (6-9 AM): Moderate activity
-        if hour >= 6 && hour < 9 {
-            return Int.random(in: 200...800)
+        switch displayMode {
+        case .steps:
+            if hour == averageData.mostActiveHour {
+                return .green
+            }
+            if sleepHours.contains(hour) {
+                return .stepperCream.opacity(0.4)
+            }
+            return .stepperLightTeal
+        case .notifications:
+            if hour == averageData.mostInactiveHour {
+                return .red
+            }
+            return .orange
         }
-        
-        // Work hours (9 AM - 5 PM): Variable activity
-        if hour >= 9 && hour < 17 {
-            // Some days more sedentary (meetings), others more active
-            let isActiveMorning = dayOffset % 3 == 0
-            return isActiveMorning ? Int.random(in: 100...400) : Int.random(in: 400...900)
-        }
-        
-        // Evening hours (5-11 PM): Higher activity
-        if hour >= 17 && hour < 23 {
-            return Int.random(in: 300...1200)
-        }
-        
-        return Int.random(in: 50...300)
     }
     
-    private func generateHourlyNotifications(hour: Int, dayOffset: Int) -> Int {
-        // No notifications during sleep
-        if hour >= 23 || hour < 6 {
-            return 0
+    private func getBarOpacity(for hour: Int) -> Double {
+        if selectedHour == hour {
+            return 1.0
         }
-        
-        // More likely to get notifications during work hours if sedentary
-        if hour >= 9 && hour < 17 {
-            // Simulate periods of inactivity
-            if dayOffset % 4 == 0 && hour % 3 == 0 {
-                return Int.random(in: 0...2)
+        if selectedHour != nil {
+            return 0.4
+        }
+        return sleepHours.contains(hour) ? 0.6 : 0.8
+    }
+    
+    private func formatHour(_ hour: Int) -> String {
+        if hour == 0 { return "12 AM" }
+        if hour < 12 { return "\(hour) AM" }
+        if hour == 12 { return "12 PM" }
+        return "\(hour - 12) PM"
+    }
+}
+
+// MARK: - Hour Average Detail View
+struct HourAverageDetailView: View {
+    let hour: Int
+    let averageData: AverageActivityData
+    let displayMode: ChartDisplayMode
+    
+    private func formatHour(_ hour: Int) -> String {
+        if hour == 0 { return "12 AM" }
+        if hour < 12 { return "\(hour) AM" }
+        if hour == 12 { return "12 PM" }
+        return "\(hour - 12) PM"
+    }
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            Text("📊 \(formatHour(hour)) Average")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.stepperYellow)
+            
+            HStack(spacing: 20) {
+                HStack {
+                    Image(systemName: "figure.walk")
+                        .foregroundColor(.stepperLightTeal)
+                    Text("\(Int(averageData.hourlyAverageSteps[hour] ?? 0)) steps")
+                        .font(.caption)
+                        .foregroundColor(.stepperCream)
+                }
+                
+                HStack {
+                    Image(systemName: "bell.fill")
+                        .foregroundColor(.orange)
+                    Text(String(format: "%.1f reminders", averageData.hourlyAverageNotifications[hour] ?? 0))
+                        .font(.caption)
+                        .foregroundColor(.stepperCream)
+                }
+                
+                // Special indicators
+                if displayMode == .steps && hour == averageData.mostActiveHour {
+                    Text("🏃‍♂️ Peak!")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(.green)
+                }
+                
+                if displayMode == .notifications && hour == averageData.mostInactiveHour {
+                    Text("⚠️ Most Inactive")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(.red)
+                }
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.stepperDarkBlue.opacity(0.7))
+        )
+    }
+}
+
+// MARK: - Activity Insights View
+struct ActivityInsightsView: View {
+    let averageData: AverageActivityData
+    
+    private func formatHour(_ hour: Int) -> String {
+        if hour == 0 { return "12 AM" }
+        if hour < 12 { return "\(hour) AM" }
+        if hour == 12 { return "12 PM" }
+        return "\(hour - 12) PM"
+    }
+    
+    private var activityScore: Int {
+        let totalSteps = averageData.hourlyAverageSteps.values.reduce(0, +)
+        let totalNotifications = averageData.hourlyAverageNotifications.values.reduce(0, +)
         
-        // Occasional notifications during other active hours
-        if hour >= 6 && hour < 23 {
-            return Int.random(in: 0...10) == 0 ? 1 : 0
+        // Simple scoring: more steps = better, fewer notifications = better
+        let stepScore = min(100, Int(totalSteps / 100))
+        let notificationPenalty = min(50, Int(totalNotifications * 5))
+        
+        return max(0, stepScore - notificationPenalty)
+    }
+    
+    var body: some View {
+        VStack(spacing: 15) {
+            HStack {
+                Image(systemName: "lightbulb.fill")
+                    .foregroundColor(.stepperYellow)
+                Text("Activity Score: \(activityScore)/100")
+                    .font(.headline)
+                    .foregroundColor(.stepperCream)
+                Spacer()
+            }
+            
+            VStack(alignment: .leading, spacing: 12) {
+                // Peak performance window
+                HStack {
+                    Text("🎯")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Peak Performance Window")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.green)
+                        Text("Schedule important activities around \(formatHour(averageData.mostActiveHour)) when you average \(averageData.mostActiveSteps) steps per hour")
+                            .font(.caption)
+                            .foregroundColor(.stepperCream.opacity(0.8))
+                    }
+                    Spacer()
+                }
+                
+                // Improvement opportunity
+                if averageData.hourlyAverageNotifications[averageData.mostInactiveHour] ?? 0 > 0.5 {
+                    HStack {
+                        Text("⚡")
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Movement Opportunity")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.orange)
+                            Text("Set a \(formatHour(averageData.mostInactiveHour)) movement reminder - this is when you're typically least active")
+                                .font(.caption)
+                                .foregroundColor(.stepperCream.opacity(0.8))
+                        }
+                        Spacer()
+                    }
+                }
+                
+                // Consistency insight
+                let consistentHours = averageData.hourlyAverageSteps.filter { $0.value > 200 && ![23, 0, 1, 2, 3, 4, 5].contains($0.key) }.count
+                if consistentHours > 12 {
+                    HStack {
+                        Text("🌟")
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Consistency Champion")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.stepperYellow)
+                            Text("You maintain good activity across \(consistentHours) hours of the day - excellent consistency!")
+                                .font(.caption)
+                                .foregroundColor(.stepperCream.opacity(0.8))
+                        }
+                        Spacer()
+                    }
+                }
+            }
         }
-        
-        return 0
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.stepperCream.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.stepperYellow.opacity(0.2), lineWidth: 1)
+                )
+        )
     }
 }
 
@@ -579,62 +948,6 @@ struct HourDetailView: View {
         )
     }
 }
-
-//struct HourChartMarksView: View {
-//    let hourData: HourlyStepData
-//    let displayMode: ChartDisplayMode
-//    let maxValue: Double
-//    let sleepHours: [Int]
-//    @Binding var selectedHour: Int?
-//    
-//    // You would need to move `formatHour`, `getBarColor`, and `getBarOpacity` into this view
-//    // or a helper file.
-//    private func getBarColor(for hourData: HourlyStepData) -> Color {
-//        if selectedHour == hourData.hour {
-//            return .white // Highlighted
-//        }
-//        
-//        switch displayMode {
-//        case .steps:
-//            if sleepHours.contains(hourData.hour) {
-//                return .stepperCream.opacity(0.4) // Muted for sleep hours
-//            }
-//            return .stepperLightTeal
-//        case .notifications:
-//            return .orange
-//        }
-//    }
-//
-//    private func getBarOpacity(for hourData: HourlyStepData) -> Double {
-//        if selectedHour == hourData.hour {
-//            return 1.0
-//        }
-//        if selectedHour != nil {
-//            return 0.4 // Dim non-selected bars
-//        }
-//        return sleepHours.contains(hourData.hour) ? 0.6 : 0.8
-//    }
-//    
-//    var body: some View {
-//        // This is the content that was causing the compiler to fail
-//        BarMark(
-//            x: .value("Hour", hourData.hour),
-//            y: .value(displayMode.rawValue, displayMode == .steps ? hourData.steps : hourData.notifications)
-//        )
-//        .foregroundStyle(getBarColor(for: hourData))
-//        .opacity(getBarOpacity(for: hourData))
-//        .cornerRadius(3)
-//        
-//        if sleepHours.contains(hourData.hour) {
-//            RectangleMark(
-//                x: .value("Hour", hourData.hour),
-//                yStart: .value("Start", 0),
-//                yEnd: .value("End", maxValue)
-//            )
-//            .zIndex(-1)
-//        }
-//    }
-//}
 
 struct ActivityChartView: View {
     let chartData: [HourlyStepData]
